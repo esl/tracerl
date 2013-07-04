@@ -25,7 +25,7 @@ init_state() ->
            pid = PidStr}.
 
 probe({probe, 'BEGIN', Statements}, _State) ->
-    ["probe begin {\n", op({group, Statements}), "}\n"];
+    ["probe begin\n", op({group, Statements})];
 probe({probe, Functions, Predicates, Statements}, State) ->
     [sep([["probe process(\"", State#state.name,
            "\").mark(\"", Function, "\")\n"] || Function <- Functions], ",") ++
@@ -41,14 +41,16 @@ probe_predicates(Preds) ->
 
 op({group, Items}) ->
     ["{\n", sep_ops(Items, "\n"), "\n}\n"];
+op({action, exit}) ->
+    ["exit()"];
 op({'&&', Ops}) ->
     ["(", sep_ops(Ops, ") && ("), ")"];
 op({'==', Op1, Op2}) ->
     [op(Op1), " == ", op(Op2)];
 op({arg_str,N}) ->
-    ["user_string($arg",integer_to_list(N+1),")"];
+    ["user_string($arg",integer_to_list(N),")"];
 op({arg,N}) ->
-    ["$arg",integer_to_list(N+1)];
+    ["$arg",integer_to_list(N)];
 op({Func,List}) when is_atom(Func), is_list(List) ->
     [atom_to_list(Func), "(", sep_ops(List, ", "), ")"];
 op(Pid) when is_pid(Pid) ->

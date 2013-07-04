@@ -21,12 +21,16 @@ init_state() ->
     #state{pid = PidStr}.
 
 probe({probe, 'BEGIN', Statements}, _State) ->
-    ["BEGIN {\n", op({group, Statements}), "}\n"];
+    ["BEGIN \n", op({group, Statements})];
 probe({probe, Functions, Predicates, Statements}, State) ->
-    [["erlang", State#state.pid, ":::", Function, "\n"] ||
-        Function <- Functions] ++
-        ["/ ", probe_predicates(Predicates), " /\n",
-         op({group, Statements})].
+    [[["erlang", State#state.pid, ":::", Function, "\n"] ||
+        Function <- Functions],
+     case Predicates of
+         [] -> [];
+         _  -> ["/ ", probe_predicates(Predicates), " /\n"]
+     end,
+     op({group, Statements})
+    ].
 
 probe_predicates([SinglePred]) ->
     op(SinglePred);
@@ -35,14 +39,16 @@ probe_predicates(Preds) ->
 
 op({group, Items}) ->
     ["{\n", sep_ops(Items, ";\n"), ";\n}\n"];
+op({action, exit}) ->
+    ["exit(0)"];
 op({'&&', Ops}) ->
     ["(", sep_ops(Ops, ") && ("), ")"];
 op({'==', Op1, Op2}) ->
     [op(Op1), " == ", op(Op2)];
 op({arg_str,N}) ->
-    ["copyinstr(arg",integer_to_list(N),")"];
+    ["copyinstr(arg",integer_to_list(N-1),")"];
 op({arg,N}) ->
-    ["arg",integer_to_list(N)];
+    ["arg",integer_to_list(N-1)];
 op({Func,List}) when is_atom(Func), is_list(List) ->
     [atom_to_list(Func), "(", sep_ops(List, ", "), ")"];
 op(Pid) when is_pid(Pid) ->
