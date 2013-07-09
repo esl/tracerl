@@ -8,7 +8,7 @@
 %%%-------------------------------------------------------------------
 -module(dyntrace_util).
 
--compile(export_all).
+-export([trace/2]).
 
 -define(dyntrace_gen,
         (case erlang:system_info(dynamic_trace) of
@@ -26,7 +26,7 @@ trace(Script0, Action) ->
     ok = file:write_file(SrcFile, Script),
     Args = case erlang:system_info(dynamic_trace) of
                dtrace    -> [os:find_executable(dtrace), "-q", "-s", SrcFile];
-               systemtap -> [os:find_executable(stap)]
+               systemtap -> [os:find_executable(stap), SrcFile]
            end,
     Port = open_port({spawn_executable, Sudo},
 		     [{args, Args}, stream, in, stderr_to_stdout, eof]),
