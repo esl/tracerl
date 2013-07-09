@@ -45,9 +45,9 @@ op({'&&', Ops}) ->
     ["(", sep_ops(Ops, ") && ("), ")"];
 op({'==', Op1, Op2}) ->
     [op(Op1), " == ", op(Op2)];
-op({arg_str,N}) ->
+op({arg_str, N}) when is_integer(N), N > 0 ->
     ["copyinstr(arg",integer_to_list(N-1),")"];
-op({arg,N}) ->
+op({arg, N}) when is_integer(N), N > 0 ->
     ["arg",integer_to_list(N-1)];
 op({Func,List}) when is_atom(Func), is_list(List) ->
     [atom_to_list(Func), "(", sep_ops(List, ", "), ")"];

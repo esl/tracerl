@@ -22,7 +22,7 @@ init_state() ->
                     "ps -p ~p -o command | tail -n 1 | awk '{print $1}'",
                     [PidStr])),
     #state{name = re:replace(Name, "\\s*$", "", [{return, list}]),
-           pid = PidStr}.
+           pid = list_to_integer(PidStr)}.
 
 probe({probe, 'BEGIN', Statements}, _State) ->
     ["probe begin\n", op({group, Statements})];
@@ -47,9 +47,9 @@ op({'&&', Ops}) ->
     ["(", sep_ops(Ops, ") && ("), ")"];
 op({'==', Op1, Op2}) ->
     [op(Op1), " == ", op(Op2)];
-op({arg_str,N}) ->
+op({arg_str, N}) when is_integer(N), N > 0 ->
     ["user_string($arg",integer_to_list(N),")"];
-op({arg,N}) ->
+op({arg, N}) when is_integer(N), N > 0 ->
     ["$arg",integer_to_list(N)];
 op({Func,List}) when is_atom(Func), is_list(List) ->
     [atom_to_list(Func), "(", sep_ops(List, ", "), ")"];
