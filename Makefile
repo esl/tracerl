@@ -15,5 +15,8 @@ clean: rebar
 	./rebar clean
 
 rebar:
-	wget http://cloud.github.com/downloads/basho/rebar/rebar
-	chmod u+x rebar
+	git clone https://github.com/basho/rebar.git
+	cd rebar && ./bootstrap
+	mv rebar/rebar rebar.tmp
+	rm -rf rebar
+	mv rebar.tmp rebar
