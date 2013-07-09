@@ -5,3 +5,4 @@ test/*.beam
 .eunit
 logs
 *~
+erl_crash.dump
