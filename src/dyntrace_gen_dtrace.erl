@@ -13,11 +13,16 @@
 -record(state, {pid}).
 
 script(Probes) ->
-    State = init_state(),
+    script(Probes, node()).
+
+script(Probes, Node) when is_atom(Node) ->
+    PidStr = rpc:call(Node, os, getpid, []),
+    script(Probes, PidStr);
+script(Probes, PidStr) ->
+    State = init_state(PidStr),
     sep([probe(Probe, State) || Probe <- Probes], "\n").
 
-init_state() ->
-    PidStr = os:getpid(),
+init_state(PidStr) when is_list(PidStr) ->
     #state{pid = PidStr}.
 
 probe({probe, 'BEGIN', Statements}, _State) ->

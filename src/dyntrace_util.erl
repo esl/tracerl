@@ -8,30 +8,22 @@
 %%%-------------------------------------------------------------------
 -module(dyntrace_util).
 
--export([trace/2]).
+-export([trace/2, start_trace/3]).
 
--define(dyntrace_gen,
-        (case erlang:system_info(dynamic_trace) of
+-define(dyntrace_gen(Node),
+        (case rpc:call(Node, erlang, system_info, [dynamic_trace]) of
              dtrace    -> dyntrace_gen_dtrace;
              systemtap -> dyntrace_gen_systemtap
          end)).
 
 trace(Script, Action) ->
-    Sudo = os:find_executable(sudo),
-    {Termination, Pid} = termination_probe(),
+    Pid = spawn(fun() ->
+                        receive _ -> exit(done) end
+                end),
+    Termination = termination_probe(Pid),
     TerminatedScript = Script ++ [Termination],
-    GenScript = ?dyntrace_gen:script(TerminatedScript),
-    io:format("~s\n", [GenScript]),
-    {A, B, C} = now(),
-    SrcFile = lists:flatten(io_lib:format("dyntrace-script-~p-~p.~p.~p",
-                                          [node(), A, B, C])),
-    ok = file:write_file(SrcFile, GenScript),
-    Args = case erlang:system_info(dynamic_trace) of
-               dtrace    -> [os:find_executable(dtrace), "-q", "-s", SrcFile];
-               systemtap -> [os:find_executable(stap), SrcFile]
-           end,
-    Port = open_port({spawn_executable, Sudo},
-		     [{args, Args}, stream, in, stderr_to_stdout, eof]),
+    {Port, SrcFile} = start_trace(TerminatedScript,
+                                  [stream, in, stderr_to_stdout, eof], node()),
     receive
 	{Port, {data, Sofar}} ->
 	    Res = Action(),
@@ -50,9 +42,24 @@ get_data(Port, Sofar, SrcFile) ->
 	    re:split(T, "\n", [{return, list}, trim])
     end.
 
-termination_probe() ->
-    Pid = spawn(fun() ->
-                        receive _ -> exit(done) end
-		end),
-    {{probe, ["process-exit"], [{'==', {arg_str,1}, Pid}],
-      [{action, exit}]}, Pid}.
+start_trace(Script, PortArgs, Node) ->
+    Sudo = os:find_executable(sudo),
+    Termination = termination_probe(self()),
+    GenScript = ?dyntrace_gen(Node):script(Script ++ [Termination], Node),
+    io:format("~s~n", [GenScript]),
+    {A, B, C} = now(),
+    SrcFile = lists:flatten(io_lib:format("dyntrace-script-~p-~p.~p.~p",
+                                          [node(), A, B, C])),
+    ok = file:write_file(SrcFile, GenScript),
+    Args = case ?dyntrace_gen(Node) of
+               dyntrace_gen_dtrace ->
+                   [os:find_executable(dtrace), "-q", "-s", SrcFile];
+               dyntrace_gen_systemtap ->
+                   [os:find_executable(stap), SrcFile]
+           end,
+    Port = open_port({spawn_executable, Sudo}, [{args, Args} | PortArgs]),
+    {Port, SrcFile}.
+
+termination_probe(Pid) ->
+    {probe, ["process-exit"], [{'==', {arg_str,1}, Pid}],
+     [{action, exit}]}.
