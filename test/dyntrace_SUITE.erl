@@ -1,7 +1,10 @@
 %%%-------------------------------------------------------------------
 %%% @author Pawel Chrzaszcz
 %%% @copyright (C) 2013, Erlang Solutions Ltd.
-%%% @doc Script generator for dtrace
+%%% @doc Tests for dynamic tracing.
+%%%      The test cases check:
+%%%        * VM probes correctness,
+%%%        * Generating simple scripts for dtrace/systemtap.
 %%%
 %%% @end
 %%% Created : 4 Jul 2013 by pawel.chrzaszcz@erlang-solutions.com
@@ -21,10 +24,10 @@ suite() ->
 
 all() ->
     case erlang:system_info(dynamic_trace) of
-	none ->
-	    {skip, "No dynamic trace in this run-time system"};
-	_ ->
-	    [{group, local},
+        none ->
+            {skip, "No dynamic trace in this run-time system"};
+        _ ->
+            [{group, local},
              {group, dist}]
     end.
 
@@ -64,6 +67,10 @@ init_per_testcase(_Case, Config) ->
 end_per_testcase(_Case, _Config) ->
     ok.
 
+%%%-------------------------------------------------------------------
+%%% Test cases
+%%%-------------------------------------------------------------------
+
 process_spawn_exit_test(_Config) ->
     {Pid, Output} = dyntrace_util:trace(process_spawn_exit_script(),
                                         fun process_spawn_exit_scenario/0),
@@ -74,24 +81,6 @@ process_spawn_exit_test(_Config) ->
     [{spawn, PidStr, "erlang:apply/2"},
      {exit, PidStr, "normal"}] = FiltOutput,
     ok.
-
-process_spawn_exit_scenario() ->
-    {Pid, Ref} = spawn_monitor(fun() ->
-                                       receive quit -> ok end
-                               end),
-    Pid ! quit,
-    receive
-        {'DOWN', Ref, process, Pid, normal} -> Pid
-    end.
-
-process_spawn_exit_script() ->
-    [{probe, 'BEGIN',
-      [{printf, ["\n"]}]},
-     {probe, ["process-spawn"], [],
-      [{printf, ["spawn %s %s\n", {arg_str,1}, {arg_str,2}]}]},
-     {probe, ["process-exit"], [],
-      [{printf, ["exit %s %s\n", {arg_str,1}, {arg_str,2}]}]}
-    ].
 
 process_scheduling_test(_Config) ->
     {Pid, Output} = dyntrace_util:trace(process_scheduling_script(),
@@ -108,6 +97,31 @@ process_scheduling_test(_Config) ->
      {unschedule, PidStr}] = FiltOutput,
     ok.
 
+message_test(Config) ->
+    do_message_test(Config,
+                    fun message_scenario/1, fun check_local_message/3).
+
+message_self_test(Config) ->
+    do_message_test(Config,
+                    fun message_self_scenario/1, fun check_local_message/3).
+
+message_dist_test(Config) ->
+    do_message_test(Config,
+                    fun message_dist_scenario/1, fun check_dist_message/3).
+
+%%%-------------------------------------------------------------------
+%%% Test helpers
+%%%-------------------------------------------------------------------
+
+process_spawn_exit_scenario() ->
+    {Pid, Ref} = spawn_monitor(fun() ->
+                                       receive quit -> ok end
+                               end),
+    Pid ! quit,
+    receive
+        {'DOWN', Ref, process, Pid, normal} -> Pid
+    end.
+
 process_scheduling_scenario() ->
     {Pid, Ref} = spawn_monitor(fun process_scheduling_f/0),
     Pid ! hibernate,
@@ -123,31 +137,6 @@ process_scheduling_f() ->
         quit ->
             ok
     end.
-
-process_scheduling_script() ->
-    [{probe, 'BEGIN',
-      [{printf, ["\n"]}]},
-     {probe, ["process-scheduled"], [],
-      [{printf, ["schedule %s\n", {arg_str,1}]}]},
-     {probe, ["process-unscheduled"], [],
-      [{printf, ["unschedule %s\n", {arg_str,1}]}]},
-     {probe, ["process-hibernate"], [],
-      [{printf, ["hibernate %s %s\n", {arg_str,1}, {arg_str,2}]}]},
-     {probe, ["process-exit"], [],
-      [{printf, ["exit %s\n", {arg_str,1}]}]}
-    ].
-
-message_test(Config) ->
-    do_message_test(Config,
-                    fun message_scenario/1, fun check_local_message/3).
-
-message_self_test(Config) ->
-    do_message_test(Config,
-                    fun message_self_scenario/1, fun check_local_message/3).
-
-message_dist_test(Config) ->
-    do_message_test(Config,
-                    fun message_dist_scenario/1, fun check_dist_message/3).
 
 do_message_test(Config, TestF, CheckF) ->
     {{Sender, Receiver}, Output} =
@@ -189,17 +178,6 @@ message_dist_scenario(Config) ->
         {'DOWN', Ref, process, Receiver, normal} -> {Sender, Receiver}
     end.
 
-message_script() ->
-    [{probe, 'BEGIN',
-      [{printf, ["\n"]}]},
-     {probe, ["message-send"], [],
-      [{printf, ["sent %s %s %d\n", {arg_str,1}, {arg_str,2}, {arg,3}]}]},
-     {probe, ["message-queued"], [],
-      [{printf, ["queued %s %d %d\n", {arg_str,1}, {arg,2}, {arg,3}]}]},
-     {probe, ["message-receive"], [],
-      [{printf, ["received %s %d %d\n", {arg_str,1}, {arg,2}, {arg,3}]}]}
-    ].
-
 check_local_message(Sender, Receiver, TermOutput) ->
     {SenderStr, ReceiverStr} = {?p2l(Sender), ?p2l(Receiver)},
     {Msg1Size, Msg2Size} = {?msize(?msg1), ?msize(?msg2)},
@@ -225,3 +203,40 @@ check_dist_message(Sender, Receiver, TermOutput) ->
 termify_line(L) ->
     [H|T] = re:split(L, " ", [{return,list}]),
     list_to_tuple([list_to_atom(H)|T]).
+
+%%%-------------------------------------------------------------------
+%%% Dyntrace scripts
+%%%-------------------------------------------------------------------
+
+process_spawn_exit_script() ->
+    [{probe, ['begin'], [],
+      [{printf, "\n", []}]},
+     {probe, ["process-spawn"], [],
+      [{printf, "spawn %s %s\n", [{arg_str,1}, {arg_str,2}]}]},
+     {probe, ["process-exit"], [],
+      [{printf, "exit %s %s\n", [{arg_str,1}, {arg_str,2}]}]}
+    ].
+
+process_scheduling_script() ->
+    [{probe, ['begin'], [],
+      [{printf, "\n", []}]},
+     {probe, ["process-scheduled"], [],
+      [{printf, "schedule %s\n", [{arg_str,1}]}]},
+     {probe, ["process-unscheduled"], [],
+      [{printf, "unschedule %s\n", [{arg_str,1}]}]},
+     {probe, ["process-hibernate"], [],
+      [{printf, "hibernate %s %s\n", [{arg_str,1}, {arg_str,2}]}]},
+     {probe, ["process-exit"], [],
+      [{printf, "exit %s\n", [{arg_str,1}]}]}
+    ].
+
+message_script() ->
+    [{probe, ['begin'], [],
+      [{printf, "\n", []}]},
+     {probe, ["message-send"], [],
+      [{printf, "sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]}]},
+     {probe, ["message-queued"], [],
+      [{printf, "queued %s %d %d\n", [{arg_str,1}, {arg,2}, {arg,3}]}]},
+     {probe, ["message-receive"], [],
+      [{printf, "received %s %d %d\n", [{arg_str,1}, {arg,2}, {arg,3}]}]}
+    ].
