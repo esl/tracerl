@@ -19,7 +19,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {port, src_file, handler}).
+-record(state, {port, quit_pid, src_file, handler}).
 
 -define(l2b(L), list_to_binary(L)).
 -define(l2i(L), list_to_integer(L)).
@@ -57,9 +57,10 @@ stop(Pid) ->
 %% @end
 %%--------------------------------------------------------------------
 init([Script, Node, Handler]) ->
-    {Port, SrcFile} =
-        dyntrace_util:start_trace(Script, [{line, 1024}, eof], Node),
-    {ok, #state{port = Port, src_file = SrcFile, handler = Handler}}.
+    {Port, QuitPid, SrcFile} =
+        dyntrace_util:start_trace(Script, [stream, {line, 1024}, eof], Node),
+    {ok, #state{port = Port, quit_pid = QuitPid,
+                src_file = SrcFile, handler = Handler}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -89,8 +90,9 @@ handle_call(_Request, _From, State) ->
 %%                                  {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_cast(stop, State) ->
-    {stop, normal, State};
+handle_cast(stop, State = #state{quit_pid = QuitPid}) ->
+    dyntrace_util:quit(QuitPid),
+    {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -105,7 +107,7 @@ handle_cast(_Msg, State) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_info({Port, {data, {eol, Line}}}, State = #state{port = Port,
-                                                handler = Handler}) ->
+                                                        handler = Handler}) ->
     Handler({line, Line}),
     {noreply, State};
 handle_info({Port, eof}, State = #state{port = Port, handler = Handler}) ->

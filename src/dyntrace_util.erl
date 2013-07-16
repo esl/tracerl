@@ -8,7 +8,7 @@
 %%%-------------------------------------------------------------------
 -module(dyntrace_util).
 
--export([trace/2, start_trace/3]).
+-export([trace/2, start_trace/3, quit/1]).
 
 -define(dyntrace_gen(Node),
         (case rpc:call(Node, erlang, system_info, [dynamic_trace]) of
@@ -17,17 +17,12 @@
          end)).
 
 trace(Script, Action) ->
-    Pid = spawn(fun() ->
-                        receive _ -> exit(done) end
-                end),
-    Termination = termination_probe(Pid),
-    TerminatedScript = Script ++ [Termination],
-    {Port, SrcFile} = start_trace(TerminatedScript,
-                                  [stream, in, stderr_to_stdout, eof], node()),
+    {Port, Pid, SrcFile} =
+        start_trace(Script, [stream, in, stderr_to_stdout, eof], node()),
     receive
 	{Port, {data, Sofar}} ->
 	    Res = Action(),
-	    Pid ! quit,
+	    quit(Pid),
 	    {Res, get_data(Port, Sofar, SrcFile)}
     end.
 
@@ -42,15 +37,17 @@ get_data(Port, Sofar, SrcFile) ->
 	    re:split(T, "\n", [{return, list}, trim])
     end.
 
-start_trace(Script, PortArgs, Node) ->
+start_trace(ScriptSrc, PortArgs, Node) ->
     Sudo = os:find_executable(sudo),
-    Termination = termination_probe(self()),
-    GenScript = ?dyntrace_gen(Node):script(Script ++ [Termination], Node),
-    io:format("~s~n", [GenScript]),
+    Pid = spawn(Node, timer, sleep, [infinity]),
+    PidStr = rpc:call(Node, erlang, pid_to_list, [Pid]),
+    Termination = termination_probe(PidStr),
+    Script = ?dyntrace_gen(Node):script([Termination|ScriptSrc], Node),
+    io:format("~s~n", [Script]),
     {A, B, C} = now(),
     SrcFile = lists:flatten(io_lib:format("dyntrace-script-~p-~p.~p.~p",
                                           [node(), A, B, C])),
-    ok = file:write_file(SrcFile, GenScript),
+    ok = file:write_file(SrcFile, Script),
     Args = case ?dyntrace_gen(Node) of
                dyntrace_gen_dtrace ->
                    [os:find_executable(dtrace), "-q", "-s", SrcFile];
@@ -58,8 +55,11 @@ start_trace(Script, PortArgs, Node) ->
                    [os:find_executable(stap), SrcFile]
            end,
     Port = open_port({spawn_executable, Sudo}, [{args, Args} | PortArgs]),
-    {Port, SrcFile}.
+    {Port, Pid, SrcFile}.
+
+quit(Pid) ->
+    exit(Pid, quit).
 
 termination_probe(Pid) ->
     {probe, ["process-exit"], [{'==', {arg_str,1}, Pid}],
-     [{action, exit}]}.
+     [exit]}.
