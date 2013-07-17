@@ -57,8 +57,7 @@ stop(Pid) ->
 %% @end
 %%--------------------------------------------------------------------
 init([Script, Node, Handler]) ->
-    {Port, QuitPid, SrcFile} =
-        dyntrace_util:start_trace(Script, [stream, {line, 1024}, eof], Node),
+    {Port, QuitPid, SrcFile} = dyntrace_util:start_trace(Script, Node),
     {ok, #state{port = Port, quit_pid = QuitPid,
                 src_file = SrcFile, handler = Handler}}.
 
@@ -112,6 +111,7 @@ handle_info({Port, {data, {eol, Line}}}, State = #state{port = Port,
     {noreply, State};
 handle_info({Port, eof}, State = #state{port = Port, handler = Handler}) ->
     Handler(eof),
+    port_close(Port),
     {stop, normal, State};
 handle_info(Info, State) ->
     io:format("~p~n", [Info]),

@@ -8,7 +8,7 @@
 %%%-------------------------------------------------------------------
 -module(dyntrace_util).
 
--export([trace/2, start_trace/3, quit/1]).
+-export([trace/2, start_trace/2, start_trace/3, quit/1]).
 
 -define(dyntrace_gen(Node),
         (case rpc:call(Node, erlang, system_info, [dynamic_trace]) of
@@ -20,22 +20,24 @@ trace(Script, Action) ->
     {Port, Pid, SrcFile} =
         start_trace(Script, [stream, in, stderr_to_stdout, eof], node()),
     receive
-	{Port, {data, Sofar}} ->
-	    Res = Action(),
-	    quit(Pid),
-	    {Res, get_data(Port, Sofar, SrcFile)}
+        {Port, {data, Sofar}} ->
+            Res = Action(),
+            quit(Pid),
+            {Res, get_data(Port, Sofar, SrcFile)}
     end.
 
 get_data(Port, Sofar, SrcFile) ->
     receive
-	{Port, {data, Bytes}} ->
-	    get_data(Port, [Sofar|Bytes], SrcFile);
-	{Port, eof} ->
-	    port_close(Port),
+        {Port, {data, Bytes}} ->
+            get_data(Port, [Sofar|Bytes], SrcFile);
+        {Port, eof} ->
+            port_close(Port),
             file:delete(SrcFile),
-	    [$\n|T] = lists:flatten(Sofar),
-	    re:split(T, "\n", [{return, list}, trim])
+            re:split(lists:flatten(Sofar), "\n", [{return, list}, trim])
     end.
+
+start_trace(ScriptSrc, Node) ->
+    start_trace(ScriptSrc, [stream, {line, 1024}, eof], Node).
 
 start_trace(ScriptSrc, PortArgs, Node) ->
     Sudo = os:find_executable(sudo),
