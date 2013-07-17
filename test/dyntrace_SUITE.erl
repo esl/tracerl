@@ -47,8 +47,6 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_group(dist, Config) ->
-    io:format("~p~n",[inet:gethostname()]),
-    io:format("~p~n",[node()]),
     {ok, Host} = inet:gethostname(),
     {ok, Slave} = slave:start(list_to_atom(Host), ct_slave),
     [{slave, Slave} | Config];
