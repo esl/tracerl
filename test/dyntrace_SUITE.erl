@@ -207,34 +207,34 @@ termify_line(L) ->
 %%%-------------------------------------------------------------------
 
 process_spawn_exit_script() ->
-    [{probe, ['begin'], [],
+    [{probe, 'begin',
       [{printf, "\n", []}]},
-     {probe, ["process-spawn"], [],
+     {probe, "process-spawn",
       [{printf, "spawn %s %s\n", [{arg_str,1}, {arg_str,2}]}]},
-     {probe, ["process-exit"], [],
+     {probe, "process-exit",
       [{printf, "exit %s %s\n", [{arg_str,1}, {arg_str,2}]}]}
     ].
 
 process_scheduling_script() ->
-    [{probe, ['begin'], [],
+    [{probe, 'begin',
       [{printf, "\n", []}]},
-     {probe, ["process-scheduled"], [],
+     {probe, "process-scheduled",
       [{printf, "schedule %s\n", [{arg_str,1}]}]},
-     {probe, ["process-unscheduled"], [],
+     {probe, "process-unscheduled",
       [{printf, "unschedule %s\n", [{arg_str,1}]}]},
-     {probe, ["process-hibernate"], [],
+     {probe, "process-hibernate",
       [{printf, "hibernate %s %s\n", [{arg_str,1}, {arg_str,2}]}]},
-     {probe, ["process-exit"], [],
+     {probe, "process-exit",
       [{printf, "exit %s\n", [{arg_str,1}]}]}
     ].
 
 message_script() ->
-    [{probe, ['begin'], [],
+    [{probe, 'begin',
       [{printf, "\n", []}]},
-     {probe, ["message-send"], [],
+     {probe, "message-send",
       [{printf, "sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]}]},
-     {probe, ["message-queued"], [],
+     {probe, "message-queued",
       [{printf, "queued %s %d %d\n", [{arg_str,1}, {arg,2}, {arg,3}]}]},
-     {probe, ["message-receive"], [],
+     {probe, "message-receive",
       [{printf, "received %s %d %d\n", [{arg_str,1}, {arg,2}, {arg,3}]}]}
     ].

@@ -63,5 +63,5 @@ quit(Pid) ->
     exit(Pid, quit).
 
 termination_probe(Pid) ->
-    {probe, ["process-exit"], [{'==', {arg_str,1}, Pid}],
+    {probe, "process-exit", {'==', {arg_str,1}, Pid},
      [exit]}.

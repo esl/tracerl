@@ -10,65 +10,143 @@
 
 -compile(export_all).
 
--record(state, {name, pid}).
+-define(a2l(A), atom_to_list(A)).
+-define(i2l(I), integer_to_list(I)).
+-define(p2l(P), pid_to_list(P)).
+-define(INDENT, 2).
+-record(state, {name, pid, sets = sets:new(), counts = sets:new(), level = 0}).
 
-script(Probes) ->
-    script(Probes, node()).
+script(ScriptSrc) ->
+    script(ScriptSrc, node()).
 
-script(Probes, Node) when is_atom(Node) ->
+script(ScriptSrc, Node) when is_atom(Node) ->
     PidStr = rpc:call(Node, os, getpid, []),
-    script(Probes, PidStr);
-script(Probes, PidStr) ->
-    State = init_state(PidStr),
-    sep([probe(Probe, State) || Probe <- Probes], "\n").
+    script(ScriptSrc, PidStr);
+script(ScriptSrc, PidStr) ->
+    {Script, _State} = process(probes, ScriptSrc, init_state(PidStr)),
+    Script.
+
+probes(Probes, State) ->
+    {sep_t(probe, Probes, "\n"), State}.
 
 init_state(PidStr) when is_list(PidStr) ->
     Name = os:cmd(io_lib:format(
                     "ps -p ~p -o command | tail -n 1 | awk '{print $1}'",
                     [PidStr])),
     #state{name = re:replace(Name, "\\s*$", "", [{return, list}]),
-           pid = list_to_integer(PidStr)}.
+           pid = PidStr}.
 
-probe({probe, 'BEGIN', Statements}, _State) ->
-    ["probe begin\n", op({group, Statements})];
-probe({probe, Functions, Predicates, Statements}, State) ->
-    [sep([["probe process(\"", State#state.name,
-           "\").mark(\"", Function, "\")\n"] || Function <- Functions], ",") ++
-         ["{ if (",
-          probe_predicates(
-            [{'==', {pid, []}, State#state.pid}|Predicates]),
-          ") ", op({group, Statements})], "}\n"].
+probe({probe, Point, Statements}, State) when not is_list(Point) ->
+    {[{probe_point, Point}, " ", {st, {group, Statements}}, "\n"], State};
+probe({probe, Point, Predicate, Statements}, State) when not is_list(Point) ->
+    {[{probe_point, Point},
+      {nop, indent, " {\n"},
+      {align, "if ("}, {op, Predicate}, ") ",
+      {st_body, {group, Statements}},
+      {outdent, "\n}\n"}], State};
+probe({probe, Point, Statements}, State) ->
+    {[{probe_point, Point},
+      {nop, indent, " {\n"},
+      {align, "if (pid() == "}, State#state.pid, ") ",
+      {st_body, {group, Statements}},
+      {outdent, "\n}\n"}], State};
+probe({probe, Point, Predicate, Statements}, State) ->
+    {[{probe_point, Point},
+      {nop, indent, " {\n"},
+      {align, "if (pid() == "}, State#state.pid,
+      " && (", {op, Predicate}, ")) ",
+      {st_body, {group, Statements}},
+      {outdent, "\n}\n"}], State}.
+
+probe_point('begin', State) ->
+    {"probe begin", State};
+probe_point('end', State) ->
+    {"probe end", State};
+probe_point({tick, N}, State) ->
+    {["probe timer.s(", ?i2l(N), ")"], State};
+probe_point(Function, State) when is_integer(hd(Function)) ->
+    {["probe process(\"", State#state.name, "\").mark(\"", Function, "\")"],
+     State}.
 
 probe_predicates([SinglePred]) ->
     op(SinglePred);
 probe_predicates(Preds) ->
     op({'&&', Preds}).
 
-op({group, Items}) ->
-    ["{\n", sep_ops(Items, "\n"), "\n}\n"];
-op({action, exit}) ->
-    ["exit()"];
+st(Item, State) ->
+    {[{align, {st_body, Item}}], State}.
+
+st_body({group, Items}, State) ->
+    {[{nop, indent, "{\n"},
+      sep_t(st, Items, "\n"),
+      {nop, outdent, "\n"}, {align, "}"}],
+     State};
+st_body(exit, State) ->
+    {["exit()"], State};
+st_body({printf, Format, Args}, State) ->
+    {["printf(", sep_t(op, [Format | Args], ", "), ")"], State}.
+
+op(Item, State) ->
+    {op(Item), State}.
+
 op({'&&', Ops}) ->
-    ["(", sep_ops(Ops, ") && ("), ")"];
+    ["(", sep_t(op, Ops, ") && ("), ")"];
+op({'||', Ops}) ->
+    ["(", sep_t(op, Ops, ") || ("), ")"];
 op({'==', Op1, Op2}) ->
-    [op(Op1), " == ", op(Op2)];
+    [{op,Op1}, " == ", {op,Op2}];
 op({arg_str, N}) when is_integer(N), N > 0 ->
-    ["user_string($arg",integer_to_list(N),")"];
+    ["user_string($arg",?i2l(N),")"];
 op({arg, N}) when is_integer(N), N > 0 ->
-    ["$arg",integer_to_list(N)];
-op({Func,List}) when is_atom(Func), is_list(List) ->
-    [atom_to_list(Func), "(", sep_ops(List, ", "), ")"];
+    ["$arg",?i2l(N)];
+%% op({Func,List}) when is_atom(Func), is_list(List) ->
+%%     [?a2l(Func), "(", sep_ops(List, ", "), ")"];
+%% op({pid_pred, PidStr}) ->
+%%     ["pid() == ", PidStr];
 op(Pid) when is_pid(Pid) ->
-    ["\"", pid_to_list(Pid), "\""];
+    ["\"", ?p2l(Pid), "\""];
 op(Str) when is_integer(hd(Str)) ->
     io_lib:format("~p", [Str]);
 op(Int) when is_integer(Int) ->
-    integer_to_list(Int).
+    ?i2l(Int).
 
-sep_ops([A,B|T], Sep) -> [op(A),Sep|sep_ops([B|T], Sep)];
-sep_ops([H], _Sep)    -> op(H);
-sep_ops([], _Sep)     -> [].
+sep(Args, Sep) ->
+    sep_f(Args, Sep, fun(Arg) -> Arg end).
 
-sep([A,B|T], Sep) -> [A,Sep|sep([B|T], Sep)];
-sep([H], _Sep)    -> H;
-sep([], _Sep)     -> [].
+sep_t(Tag, Args, Sep) ->
+    sep_f(Args, Sep, fun(Arg) -> {Tag, Arg} end).
+
+sep_f([A, B | T], Sep, F) -> [F(A), Sep | sep_f([B|T], Sep, F)];
+sep_f([H], _Sep, F)       -> [F(H)];
+sep_f([], _Sep, _F)       -> [].
+
+process(F, Item, InState) ->
+    process(F, nop, Item, InState).
+
+process(PreF, PostF, Item, InState) ->
+    {InChildren, State} = ?MODULE:PreF(Item, InState),
+    {OutChildren, OutState} = process_list(InChildren, State),
+    ?MODULE:PostF(OutChildren, OutState).
+
+process_list(ItemL, InState) ->
+    lists:mapfoldl(fun(L, St) when is_list(L) ->
+                           process_list(L, St);
+                      (I, St) when is_integer(I) ->
+                           {I, St};
+                      ({F, Item}, St) ->
+                           process(F, Item, St);
+                      ({PreF, PostF, Item}, St) ->
+                           process(PreF, PostF, Item, St)
+                   end, InState, ItemL).
+
+indent(Item, State = #state{level = Level}) ->
+    {Item, State#state{level = Level+1}}.
+
+outdent(Item, State = #state{level = Level}) ->
+    {Item, State#state{level = Level-1}}.
+
+nop(Item, State) ->
+    {Item, State}.
+
+align(Item, State) ->
+    {[lists:duplicate(?INDENT * State#state.level, $ ), Item], State}.

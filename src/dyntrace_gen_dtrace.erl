@@ -32,14 +32,12 @@ probes(Probes, State) ->
 init_state(PidStr) when is_list(PidStr) ->
     #state{pid = PidStr}.
 
-probe({probe, Points, Predicates, Statements}, State) ->
-    {[sep_t(probe_point, Points, "\n"),
-      case Predicates of
-          [] -> [" "];
-          _  -> ["\n/ ", probe_predicates(Predicates), " /\n"]
-      end,
-      {st, {group, Statements}}
-     ], State}.
+probe({probe, Point, Statements}, State) ->
+    {[{probe_point, Point}, " ", {st, {group, Statements}}], State};
+probe({probe, Point, Predicate, Statements}, State) ->
+    {[{probe_point, Point},
+      "\n/ ", {op, Predicate}, " /\n",
+      {st, {group, Statements}}], State}.
 
 probe_point('begin', State) ->
     {"BEGIN", State};
@@ -49,11 +47,6 @@ probe_point({tick, N}, State) ->
     {["tick-", ?i2l(N), "s"], State};
 probe_point(Function, State) when is_integer(hd(Function)) ->
     {["erlang", State#state.pid, ":::", Function], State}.
-
-probe_predicates([SinglePred]) ->
-    {op, SinglePred};
-probe_predicates(Preds) ->
-    {op, {'&&', Preds}}.
 
 st(Item, State) ->
     {Body, NewState} = st_body(Item, State),

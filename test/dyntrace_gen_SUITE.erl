@@ -108,18 +108,18 @@ termify_line(L) ->
 
 count_messages_by_sender_script(Senders) ->
     Predicates = [{'==', {arg_str,1}, Sender} || Sender <- Senders],
-    [{probe, ['begin'], [],
+    [{probe, 'begin',
       [{printf, "start\n", []}]},
-     {probe, ["message-send"], [{'||', Predicates}],
+     {probe, "message-send", {'||', Predicates},
       [{printf, "sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
        {count, msg, {arg_str,1}}]},
-     {probe, ['end'], [],
+     {probe, 'end',
       [{printa, "sent %@d from %s\n", [msg]}]}].
 
 begin_tick_end_script() ->
-    [{probe, ['begin'], [],
+    [{probe, 'begin',
       [{printf, "begun\n", []}]},
-     {probe, [{tick, 1}], [],
+     {probe, {tick, 1},
       [{printf, "ticked\n", []}]},
-     {probe, ['end'], [],
+     {probe, 'end',
       [{printf, "ended\n", []}]}].
