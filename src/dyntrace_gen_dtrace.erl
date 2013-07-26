@@ -1,7 +1,7 @@
 %%%-------------------------------------------------------------------
 %%% @author Pawel Chrzaszcz
 %%% @copyright (C) 2013, Erlang Solutions Ltd.
-%%% @doc Script generator for dtrace
+%%% @doc Script generator callback module for dtrace
 %%%
 %%% @end
 %%% Created : 3 Jul 2013 by pawel.chrzaszcz@erlang-solutions.com
@@ -16,16 +16,18 @@
 -define(INDENT, 2).
 -record(state, {pid, sets = sets:new(), counts = sets:new(), level = 0}).
 
+%%-----------------------------------------------------------------------------
+%% API
+%%-----------------------------------------------------------------------------
 script(ScriptSrc) ->
-    script(ScriptSrc, node()).
+    dyntrace_gen:script(?MODULE, ScriptSrc).
 
-script(ScriptSrc, Node) when is_atom(Node) ->
-    PidStr = rpc:call(Node, os, getpid, []),
-    script(ScriptSrc, PidStr);
-script(ScriptSrc, PidStr) ->
-    {Script, _State} = process(probes, ScriptSrc, init_state(PidStr)),
-    Script.
+script(ScriptSrc, NodeOrPidStr) ->
+    dyntrace_gen:script(?MODULE, ScriptSrc, NodeOrPidStr).
 
+%%-----------------------------------------------------------------------------
+%% dyntrace_gen callbacks
+%%-----------------------------------------------------------------------------
 probes(Probes, State) ->
     {sep_t(probe, Probes, "\n"), State}.
 
@@ -99,6 +101,15 @@ op(Str) when is_integer(hd(Str)) ->
 op(Int) when is_integer(Int) ->
     ?i2l(Int).
 
+indent(Item, State = #state{level = Level}) ->
+    {Item, State#state{level = Level+1}}.
+
+outdent(Item, State = #state{level = Level}) ->
+    {Item, State#state{level = Level-1}}.
+
+nop(Item, State) ->
+    {Item, State}.
+
 sep(Args, Sep) ->
     sep_f(Args, Sep, fun(Arg) -> Arg end).
 
@@ -108,31 +119,3 @@ sep_t(Tag, Args, Sep) ->
 sep_f([A, B | T], Sep, F) -> [F(A), Sep | sep_f([B|T], Sep, F)];
 sep_f([H], _Sep, F)       -> [F(H)];
 sep_f([], _Sep, _F)       -> [].
-
-process(F, Item, InState) ->
-    process(F, nop, Item, InState).
-
-process(PreF, PostF, Item, InState) ->
-    {InChildren, State} = ?MODULE:PreF(Item, InState),
-    {OutChildren, OutState} = process_list(InChildren, State),
-    ?MODULE:PostF(OutChildren, OutState).
-
-process_list(ItemL, InState) ->
-    lists:mapfoldl(fun(L, St) when is_list(L) ->
-                           process_list(L, St);
-                      (I, St) when is_integer(I) ->
-                           {I, St};
-                      ({F, Item}, St) ->
-                           process(F, Item, St);
-                      ({PreF, PostF, Item}, St) ->
-                           process(PreF, PostF, Item, St)
-                   end, InState, ItemL).
-
-indent(Item, State = #state{level = Level}) ->
-    {Item, State#state{level = Level+1}}.
-
-outdent(Item, State = #state{level = Level}) ->
-    {Item, State#state{level = Level-1}}.
-
-nop(Item, State) ->
-    {Item, State}.
