@@ -14,7 +14,10 @@
 -define(i2l(I), integer_to_list(I)).
 -define(p2l(P), pid_to_list(P)).
 -define(INDENT, 2).
--record(state, {name, pid, sets = sets:new(), counts = sets:new(), level = 0}).
+-record(state, {name,
+                pid,
+                stats = orddict:new(),
+                level = 0}).
 
 script(ScriptSrc) ->
     script(ScriptSrc, node()).
@@ -27,7 +30,7 @@ script(ScriptSrc, PidStr) ->
     Script.
 
 probes(Probes, State) ->
-    {sep_t(probe, Probes, "\n"), State}.
+    {[{nop, add_globals, [sep_t(probe, Probes, "\n")]}], State}.
 
 init_state(PidStr) when is_list(PidStr) ->
     Name = os:cmd(io_lib:format(
@@ -35,6 +38,12 @@ init_state(PidStr) when is_list(PidStr) ->
                     [PidStr])),
     #state{name = re:replace(Name, "\\s*$", "", [{return, list}]),
            pid = PidStr}.
+
+add_globals(Script, State = #state{stats = []}) ->
+    {Script, State};
+add_globals(Script, State = #state{stats = Stats}) ->
+    {["global ", sep([?a2l(Name) || {Name, _, _} <- Stats], ", "), "\n"|Script],
+     State}.
 
 probe({probe, Point, Statements}, State) when not is_list(Point) ->
     {[{probe_point, Point}, " ", {st, {group, Statements}}, "\n"], State};
@@ -76,6 +85,10 @@ probe_predicates(Preds) ->
 st(Item, State) ->
     {[{align, {st_body, Item}}], State}.
 
+st_body({count, Count, Key}, State = #state{stats = Stats}) ->
+    false = lists:keyfind(Key, 1, Stats),
+    {[?a2l(Count), "[", {op,Key}, "] <<< 1"],
+     State#state{stats = [{Count, count, 1}|Stats]}};
 st_body({group, Items}, State) ->
     {[{nop, indent, "{\n"},
       sep_t(st, Items, "\n"),
@@ -83,8 +96,42 @@ st_body({group, Items}, State) ->
      State};
 st_body(exit, State) ->
     {["exit()"], State};
+st_body({printa, Format, Args}, State = #state{stats = Stats}) ->
+    {Items = [{Name,_}|_], KeyNum} = printa_items(Args, Stats),
+    ArgSpec = printa_args_spec(Format, Items, KeyNum),
+    PrintfFormat = re:replace(Format, "@", "", [{return, list}, global]),
+    {["foreach([", sep_keys(KeyNum), "] in ", ?a2l(Name), ")\n",
+      {indent, outdent,
+       [{align, ["printf(", sep([{op,PrintfFormat} | ArgSpec], ", "), ")"]}]}],
+     State};
 st_body({printf, Format, Args}, State) ->
     {["printf(", sep_t(op, [Format | Args], ", "), ")"], State}.
+
+printa_items(Args, Stats) ->
+    lists:foldl(fun(Name, empty) ->
+                        {Name, Type, KeyNum} = lists:keyfind(Name, 1, Stats),
+                        {[{Name, Type}], KeyNum};
+                   (Name, {Items, KeyNum}) ->
+                        {Name, Type, KeyNum} = lists:keyfind(Name, 1, Stats),
+                        {[{Name, Type}|Items], KeyNum}
+                end, empty, Args).
+
+printa_args_spec(Format, Items, KeyNum) ->
+    {ArgsSpec, {[], KeyN}} =
+        lists:mapfoldl(
+          fun([$@|_], {[{Name, Type}|Itms], KeyNo}) ->
+                  {["@", ?a2l(Type), "(", ?a2l(Name),
+                    "[", sep_keys(KeyNum), "])"],
+                   {Itms, KeyNo}};
+             (_, {Itms, KeyNo}) when KeyNo =< KeyNum ->
+                  {["key", ?i2l(KeyNo)],
+                   {Itms, KeyNo+1}}
+          end, {Items, 1}, tl(re:split(Format, "%", [{return,list}]))),
+    KeyN = KeyNum + 1,
+    ArgsSpec.
+
+sep_keys(KeyNum) ->
+    sep([["key", ?i2l(KN)] || KN <- lists:seq(1, KeyNum)], ",").
 
 op(Item, State) ->
     {op(Item), State}.
