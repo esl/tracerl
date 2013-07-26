@@ -8,13 +8,16 @@
 %%%-------------------------------------------------------------------
 -module(dyntrace_gen_dtrace).
 
+-include("dyntrace_util.hrl").
+
+-import(dyntrace_gen_util, [sep/2, sep_t/3, sep_f/3]).
+
 -compile(export_all).
 
--define(a2l(A), atom_to_list(A)).
--define(i2l(I), integer_to_list(I)).
--define(p2l(P), pid_to_list(P)).
--define(INDENT, 2).
--record(state, {pid, sets = sets:new(), counts = sets:new(), level = 0}).
+-record(state, {pid,
+                sets = sets:new(),
+                counts = sets:new(),
+                level = 0}).
 
 %%-----------------------------------------------------------------------------
 %% API
@@ -101,21 +104,11 @@ op(Str) when is_integer(hd(Str)) ->
 op(Int) when is_integer(Int) ->
     ?i2l(Int).
 
+nop(Item, State) ->
+    {Item, State}.
+
 indent(Item, State = #state{level = Level}) ->
     {Item, State#state{level = Level+1}}.
 
 outdent(Item, State = #state{level = Level}) ->
     {Item, State#state{level = Level-1}}.
-
-nop(Item, State) ->
-    {Item, State}.
-
-sep(Args, Sep) ->
-    sep_f(Args, Sep, fun(Arg) -> Arg end).
-
-sep_t(Tag, Args, Sep) ->
-    sep_f(Args, Sep, fun(Arg) -> {Tag, Arg} end).
-
-sep_f([A, B | T], Sep, F) -> [F(A), Sep | sep_f([B|T], Sep, F)];
-sep_f([H], _Sep, F)       -> [F(H)];
-sep_f([], _Sep, _F)       -> [].
