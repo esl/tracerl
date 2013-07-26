@@ -87,10 +87,11 @@ probe_predicates(Preds) ->
 st(Item, State) ->
     {[{align, {st_body, Item}}], State}.
 
-st_body({count, Count, Key}, State = #state{stats = Stats}) ->
-    false = lists:keyfind(Key, 1, Stats),
-    {[?a2l(Count), "[", {op,Key}, "] <<< 1"],
-     State#state{stats = [{Count, count, 1}|Stats]}};
+st_body({count, Count, Keys}, State = #state{stats = Stats}) ->
+    %% FIXME multiple occurences of stat
+    false = lists:keyfind(Count, 1, Stats),
+    {[?a2l(Count), "[", sep_t(op, Keys, ", "), "] <<< 1"],
+     State#state{stats = [{Count, count, length(Keys)}|Stats]}};
 st_body({group, Items}, State) ->
     {[{nop, indent, "{\n"},
       sep_t(st, Items, "\n"),

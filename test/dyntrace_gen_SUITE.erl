@@ -7,12 +7,13 @@
 %%% Created : 16 Jul 2013 by pawel.chrzaszcz@erlang-solutions.com
 %%%-------------------------------------------------------------------
 -module(dyntrace_gen_SUITE).
+
 -include_lib("test_server/include/test_server.hrl").
 
 -compile(export_all).
 
 -define(msg, "message").
--define(p2l(Pid), pid_to_list(Pid)).
+-define(p2l(P), pid_to_list(P)).
 
 suite() ->
     [{timetrap, {minutes, 1}}].
@@ -23,7 +24,8 @@ all() ->
             {skip, "No dynamic trace in this run-time system"};
         _ ->
             [begin_tick_end_test,
-             count_messages_by_sender_test]
+             count_messages_by_sender_test,
+             count_messages_by_sender_and_receiver_test]
     end.
 
 init_per_suite(Config) ->
@@ -69,6 +71,33 @@ count_messages_by_sender_test(_Config) ->
     ?expect({line, {sent, "10", "from", Sender1Str}}),
     ?expect({line, {sent, "20", "from", Sender2Str}}).
 
+count_messages_by_sender_and_receiver_test(_Config) ->
+    {Receiver1, Ref1} = spawn_monitor(fun() -> receive_n(1, 30) end),
+    {Receiver2, Ref2} = spawn_monitor(fun() -> receive_n(31, 40) end),
+    Sender1 = spawn(fun() -> send_n(Receiver1, 1, 10),
+                             self() ! start,
+                             send_n(Receiver2, 31, 35) end),
+    Sender2 = spawn(fun() -> send_n(Receiver1, 11, 30),
+                             self() ! start,
+                             send_n(Receiver2, 36, 40) end),
+    DP = start_trace(
+           count_messages_by_sender_and_receiver_script([Sender1, Sender2])),
+    ?wait_for({line, {start}}),
+    Sender1 ! start,
+    Sender2 ! start,
+    receive {'DOWN', Ref1, process, Receiver1, normal} -> ok end,
+    receive {'DOWN', Ref2, process, Receiver2, normal} -> ok end,
+    dyntrace_process:stop(DP),
+    ?wait_for(eof),
+    {Sender1Str, Sender2Str} = {?p2l(Sender1), ?p2l(Sender2)},
+    {Receiver1Str, Receiver2Str} = {?p2l(Receiver1), ?p2l(Receiver2)},
+    ?expect({line, {sent, "10", "from", Sender1Str, "to", Receiver1Str}}),
+    ?expect({line, {sent, "1",  "from", Sender1Str, "to", Sender1Str}}),
+    ?expect({line, {sent, "5",  "from", Sender1Str, "to", Receiver2Str}}),
+    ?expect({line, {sent, "20", "from", Sender2Str, "to", Receiver1Str}}),
+    ?expect({line, {sent, "1",  "from", Sender2Str, "to", Sender2Str}}),
+    ?expect({line, {sent, "5",  "from", Sender2Str, "to", Receiver2Str}}).
+
 %%%-------------------------------------------------------------------
 %%% Test helpers
 %%%-------------------------------------------------------------------
@@ -112,9 +141,19 @@ count_messages_by_sender_script(Senders) ->
       [{printf, "start\n", []}]},
      {probe, "message-send", {'||', Predicates},
       [{printf, "sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
-       {count, msg, {arg_str,1}}]},
+       {count, msg, [{arg_str,1}]}]},
      {probe, 'end',
       [{printa, "sent %@d from %s\n", [msg]}]}].
+
+count_messages_by_sender_and_receiver_script(Senders) ->
+    Predicates = [{'==', {arg_str,1}, Sender} || Sender <- Senders],
+    [{probe, 'begin',
+      [{printf, "start\n", []}]},
+     {probe, "message-send", {'||', Predicates},
+      [{printf, "sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
+       {count, msg, [{arg_str,1}, {arg_str,2}]}]},
+     {probe, 'end',
+      [{printa, "sent %@d from %s to %s\n", [msg]}]}].
 
 begin_tick_end_script() ->
     [{probe, 'begin',

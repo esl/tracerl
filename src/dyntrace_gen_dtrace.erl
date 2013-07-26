@@ -57,12 +57,14 @@ st(Item, State) ->
     {Body, NewState} = st_body(Item, State),
     {lists:duplicate(?INDENT * State#state.level, $ ) ++ Body, NewState}.
 
+%% TODO refactor counts
 st_body({set, Key, Value}, State = #state{sets = Sets}) ->
     {[$@, ?a2l(Key), "[", {op,Value}, "] = sum(0)"],
      State#state{sets = sets:add_element(Key, Sets)}};
-st_body({count, Key, Value}, State = #state{counts = Counts}) ->
-    {[$@, ?a2l(Key), "[", {op,Value}, "] = count()"],
+st_body({count, Key, Values}, State = #state{counts = Counts}) ->
+    {[$@, ?a2l(Key), "[", sep_t(op, Values, ", "), "] = count()"],
      State#state{counts = sets:add_element(Key, Counts)}};
+%% FIXME indentation
 st_body({group, Items}, State) ->
     {[{nop, indent, "{\n"}, sep_t(st, Items, ";\n"), {outdent, ";\n}\n"}],
      State};
