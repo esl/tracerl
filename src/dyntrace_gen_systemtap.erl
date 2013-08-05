@@ -10,13 +10,14 @@
 
 -include("dyntrace_util.hrl").
 
--import(dyntrace_gen_util, [sep/2, sep_t/3, sep_f/3]).
+-import(dyntrace_gen_util, [sep/2, sep_t/3, tag/2, sep_f/3]).
 
 -compile(export_all).
 
 -record(state, {name,
                 pid,
                 stats = orddict:new(),
+                multi_keys = orddict:new(),
                 level = 0}).
 
 %%-----------------------------------------------------------------------------
@@ -29,9 +30,30 @@ script(ScriptSrc, NodeOrPidStr) ->
     dyntrace_gen:script(?MODULE, ScriptSrc, NodeOrPidStr).
 
 %%-----------------------------------------------------------------------------
-%% dyntrace_gen callbacks
+%% dyntrace_gen callbacks - pass 1: preprocess
 %%-----------------------------------------------------------------------------
-probes(Probes, State) ->
+preprocess(Probes, State) ->
+    {tag(pre_probe, Probes), State}.
+
+pre_probe({probe, Point, _Predicate, Statements}, State) ->
+    pre_probe({probe, Point, Statements}, State);
+pre_probe({probe, _Point, Statements}, State) ->
+    {tag(pre_st, Statements), State}.
+
+pre_st({printa, _Format, Args}, State) when length(Args) =< 1 ->
+    {[], State};
+pre_st({printa, _Format, Args}, State = #state{multi_keys = MKeys0}) ->
+    MKey = lists:sort(Args),
+    MV = sep_f(MKey, "__", fun atom_to_list/1),
+    MKeys = orddict:store(MKey, list_to_atom(lists:flatten(MV)), MKeys0),
+    {[], State#state{multi_keys = MKeys}};
+pre_st(_, State) ->
+    {[], State}.
+
+%%-----------------------------------------------------------------------------
+%% dyntrace_gen callbacks - pass 2: generate
+%%-----------------------------------------------------------------------------
+generate(Probes, State) ->
     {[{nop, add_globals, [sep_t(probe, Probes, "\n")]}], State}.
 
 init_state(PidStr) when is_list(PidStr) ->
@@ -44,7 +66,8 @@ init_state(PidStr) when is_list(PidStr) ->
 add_globals(Script, State = #state{stats = []}) ->
     {Script, State};
 add_globals(Script, State = #state{stats = Stats}) ->
-    {["global ", sep([?a2l(Name) || {Name, _, _} <- Stats], ", "), "\n"|Script],
+    {["global ", sep_f(orddict:fetch_keys(Stats), ", ", fun atom_to_list/1),
+      "\n" | Script],
      State}.
 
 probe({probe, Point, Statements}, State) when not is_list(Point) ->
@@ -87,11 +110,20 @@ probe_predicates(Preds) ->
 st(Item, State) ->
     {[{align, {st_body, Item}}], State}.
 
-st_body({count, Count, Keys}, State = #state{stats = Stats}) ->
-    %% FIXME multiple occurences of stat
-    false = lists:keyfind(Count, 1, Stats),
-    {[?a2l(Count), "[", sep_t(op, Keys, ", "), "] <<< 1"],
-     State#state{stats = [{Count, count, length(Keys)}|Stats]}};
+st_body({count, Count, Keys}, State = #state{stats = Stats,
+                                             multi_keys = MKeys}) ->
+    MVs = orddict:fold(fun(MK, MV, MVAcc) ->
+                               case lists:member(Count, MK) of
+                                   true  -> [MV | MVAcc];
+                                   false -> MVAcc
+                               end
+                       end, [], MKeys),
+    {[?a2l(Count), "[", sep_t(op, Keys, ", "), "] <<< 1" |
+      [["\n", {st, {set, MV, Keys}}] || MV <- MVs]],
+     State#state{stats = orddict:store(Count, {count, length(Keys)}, Stats)}};
+st_body({set, Set, Keys}, State = #state{stats = Stats}) ->
+    {[?a2l(Set), "[", sep_t(op, Keys, ", "), "] = 1"],
+     State#state{stats = orddict:store(Set, {set, length(Keys)}, Stats)}};
 st_body({group, Items}, State) ->
     {[{nop, indent, "{\n"},
       sep_t(st, Items, "\n"),
@@ -99,11 +131,17 @@ st_body({group, Items}, State) ->
      State};
 st_body(exit, State) ->
     {["exit()"], State};
-st_body({printa, Format, Args}, State = #state{stats = Stats}) ->
-    {Items = [{Name,_}|_], KeyNum} = printa_items(Args, Stats),
+st_body({printa, Format, Args}, State = #state{stats = Stats,
+                                               multi_keys = MKeys}) ->
+    {Items, KeyNum} = printa_items(Args, Stats),
     ArgSpec = printa_args_spec(Format, Items, KeyNum),
     PrintfFormat = re:replace(Format, "@", "", [{return, list}, global]),
-    {["foreach([", sep_keys(KeyNum), "] in ", ?a2l(Name), ")\n",
+    {["foreach([", sep_keys(KeyNum), "] in ",
+      ?a2l(case Args of
+               [Arg] -> Arg;
+               _     -> orddict:fetch(lists:sort(Args), MKeys)
+           end),
+      ")\n",
       {indent, outdent,
        [{align, ["printf(", sep([{op,PrintfFormat} | ArgSpec], ", "), ")"]}]}],
      State};
@@ -111,13 +149,15 @@ st_body({printf, Format, Args}, State) ->
     {["printf(", sep_t(op, [Format | Args], ", "), ")"], State}.
 
 printa_items(Args, Stats) ->
-    lists:foldl(fun(Name, empty) ->
-                        {Name, Type, KeyNum} = lists:keyfind(Name, 1, Stats),
-                        {[{Name, Type}], KeyNum};
-                   (Name, {Items, KeyNum}) ->
-                        {Name, Type, KeyNum} = lists:keyfind(Name, 1, Stats),
-                        {[{Name, Type}|Items], KeyNum}
-                end, empty, Args).
+    {RevItems, KeyNumber} =
+        lists:foldl(fun(Name, empty) ->
+                            {Type, KeyNum} = orddict:fetch(Name, Stats),
+                            {[{Name, Type}], KeyNum};
+                       (Name, {Items, KeyNum}) ->
+                            {Type, KeyNum} = orddict:fetch(Name, Stats),
+                            {[{Name, Type}|Items], KeyNum}
+                    end, empty, Args),
+    {lists:reverse(RevItems), KeyNumber}.
 
 printa_args_spec(Format, Items, KeyNum) ->
     {ArgsSpec, {[], KeyN}} =
@@ -145,6 +185,14 @@ op({'||', Ops}) ->
     ["(", sep_t(op, Ops, ") || ("), ")"];
 op({'==', Op1, Op2}) ->
     [{op,Op1}, " == ", {op,Op2}];
+op({'<', Op1, Op2}) ->
+    [{op,Op1}, " < ", {op,Op2}];
+op({'>', Op1, Op2}) ->
+    [{op,Op1}, " > ", {op,Op2}];
+op({'=<', Op1, Op2}) ->
+    [{op,Op1}, " <= ", {op,Op2}];
+op({'>=', Op1, Op2}) ->
+    [{op,Op1}, " >= ", {op,Op2}];
 op({arg_str, N}) when is_integer(N), N > 0 ->
     ["user_string($arg",?i2l(N),")"];
 op({arg, N}) when is_integer(N), N > 0 ->
@@ -171,3 +219,4 @@ outdent(Item, State = #state{level = Level}) ->
 
 align(Item, State) ->
     {[lists:duplicate(?INDENT * State#state.level, $ ), Item], State}.
+

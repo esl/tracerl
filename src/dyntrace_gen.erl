@@ -17,8 +17,10 @@ script(CbkMod, ScriptSrc, Node) when is_atom(Node) ->
     PidStr = rpc:call(Node, os, getpid, []),
     script(CbkMod, ScriptSrc, PidStr);
 script(CbkMod, ScriptSrc, PidStr) ->
+    {_, State} =
+        process(CbkMod, preprocess, ScriptSrc, CbkMod:init_state(PidStr)),
     {Script, _State} =
-        process(CbkMod, probes, ScriptSrc, CbkMod:init_state(PidStr)),
+        process(CbkMod, generate, ScriptSrc, State),
     Script.
 
 process(CbkMod, F, Item, InState) ->

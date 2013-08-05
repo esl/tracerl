@@ -25,7 +25,8 @@ all() ->
         _ ->
             [begin_tick_end_test,
              count_messages_by_sender_test,
-             count_messages_by_sender_and_receiver_test]
+             count_messages_by_sender_and_receiver_test,
+             count_messages_up_down_test]
     end.
 
 init_per_suite(Config) ->
@@ -58,12 +59,12 @@ begin_tick_end_test(_Config) ->
 
 count_messages_by_sender_test(_Config) ->
     {Receiver, Ref} = spawn_monitor(fun() -> receive_n(1, 30) end),
-    Sender1 = spawn(fun() -> send_n(Receiver, 1, 10) end),
-    Sender2 = spawn(fun() -> send_n(Receiver, 11, 30) end),
+    Sender1 = spawn(fun() -> send_n(1, 10) end),
+    Sender2 = spawn(fun() -> send_n(11, 30) end),
     DP = start_trace(count_messages_by_sender_script([Sender1, Sender2])),
     ?wait_for({line, {start}}),
-    Sender1 ! start,
-    Sender2 ! start,
+    Sender1 ! {start, Receiver},
+    Sender2 ! {start, Receiver},
     receive {'DOWN', Ref, process, Receiver, normal} -> ok end,
     dyntrace_process:stop(DP),
     ?wait_for(eof),
@@ -74,17 +75,17 @@ count_messages_by_sender_test(_Config) ->
 count_messages_by_sender_and_receiver_test(_Config) ->
     {Receiver1, Ref1} = spawn_monitor(fun() -> receive_n(1, 30) end),
     {Receiver2, Ref2} = spawn_monitor(fun() -> receive_n(31, 40) end),
-    Sender1 = spawn(fun() -> send_n(Receiver1, 1, 10),
-                             self() ! start,
-                             send_n(Receiver2, 31, 35) end),
-    Sender2 = spawn(fun() -> send_n(Receiver1, 11, 30),
-                             self() ! start,
-                             send_n(Receiver2, 36, 40) end),
+    Sender1 = spawn(fun() -> send_n(1, 10),
+                             self() ! {start, Receiver2},
+                             send_n(31, 35) end),
+    Sender2 = spawn(fun() -> send_n(11, 30),
+                             self() ! {start, Receiver2},
+                             send_n(36, 40) end),
     DP = start_trace(
            count_messages_by_sender_and_receiver_script([Sender1, Sender2])),
     ?wait_for({line, {start}}),
-    Sender1 ! start,
-    Sender2 ! start,
+    Sender1 ! {start, Receiver1},
+    Sender2 ! {start, Receiver1},
     receive {'DOWN', Ref1, process, Receiver1, normal} -> ok end,
     receive {'DOWN', Ref2, process, Receiver2, normal} -> ok end,
     dyntrace_process:stop(DP),
@@ -98,12 +99,29 @@ count_messages_by_sender_and_receiver_test(_Config) ->
     ?expect({line, {sent, "1",  "from", Sender2Str, "to", Sender2Str}}),
     ?expect({line, {sent, "5",  "from", Sender2Str, "to", Receiver2Str}}).
 
+count_messages_up_down_test(_Config) ->
+    Ps = ring_start(4),
+    DP = start_trace(count_messages_up_down_script(Ps)),
+    ?wait_for({line, {start}}),
+    Ref1 = ring_send(Ps, 10, self()),
+    Ref2 = ring_send(lists:reverse(Ps), 5, self()),
+    receive {finished, Ref1} -> ok end,
+    receive {finished, Ref2} -> ok end,
+    dyntrace_process:stop(DP),
+    ring_stop(Ps),
+    [A, B, C, D] = [?p2l(P) || P <- Ps],
+    ?wait_for(eof),
+    ?expect({line, {sent, "up", "10", "down", "5", "from", A, "to", B}}),
+    ?expect({line, {sent, "up", "10", "down", "5", "from", B, "to", C}}),
+    ?expect({line, {sent, "up", "10", "down", "5", "from", C, "to", D}}),
+    ?expect({line, {sent, "up", "5", "down", "10", "from", A, "to", D}}).
+
 %%%-------------------------------------------------------------------
 %%% Test helpers
 %%%-------------------------------------------------------------------
 
-send_n(Receiver, StartNo, EndNo) ->
-    receive start -> ok end,
+send_n(StartNo, EndNo) ->
+    receive {start, Receiver} -> ok end,
     [Receiver ! {self(), No} || No <- lists:seq(StartNo, EndNo)].
 
 receive_n(StartNo, EndNo) ->
@@ -131,6 +149,35 @@ termify_line(L) ->
     [H|T] = re:split(L, " ", [{return,list}]),
     list_to_tuple([list_to_atom(H)|T]).
 
+ring_start(ProcNum) ->
+    lists:sort([spawn(fun ring_proc/0) || _ <- lists:seq(1, ProcNum)]).
+
+ring_stop(Ps) ->
+    [P ! stop || P <- Ps].
+
+ring_proc() ->
+    receive
+        [Ps|Rest] when is_list(Ps) ->
+            [P ! Rest || P <- Ps],
+            ring_proc();
+        [{notify, Pid, Ref}] ->
+            Pid ! {finished, Ref},
+            ring_proc();
+        [Next|Rest] ->
+            Next ! Rest,
+            ring_proc();
+        [] ->
+            ring_proc();
+        stop ->
+            ok
+    end.
+
+ring_send(Ps, MsgNum, Pid) ->
+    Ref = make_ref(),
+    lists:last(Ps) ! lists:flatten([lists:duplicate(MsgNum, Ps),
+                                    {notify, Pid, Ref}]),
+    Ref.
+
 %%%-------------------------------------------------------------------
 %%% Dyntrace scripts
 %%%-------------------------------------------------------------------
@@ -154,6 +201,21 @@ count_messages_by_sender_and_receiver_script(Senders) ->
        {count, msg, [{arg_str,1}, {arg_str,2}]}]},
      {probe, 'end',
       [{printa, "sent %@d from %s to %s\n", [msg]}]}].
+
+count_messages_up_down_script(Senders) ->
+    Predicates = [{'==', {arg_str,1}, Sender} || Sender <- Senders],
+    [{probe, 'begin',
+      [{printf, "start\n", []}]},
+     {probe, "message-send", {'&&', [{'||', Predicates},
+                                     {'<', {arg_str,1}, {arg_str,2}}]},
+      [{printf, "sent up %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
+       {count, msg_up, [{arg_str,1}, {arg_str,2}]}]},
+     {probe, "message-send", {'&&', [{'||', Predicates},
+                                     {'>', {arg_str,1}, {arg_str,2}}]},
+      [{printf, "sent down %s %s %d\n", [{arg_str,2}, {arg_str,1}, {arg,3}]},
+       {count, msg_down, [{arg_str,2}, {arg_str,1}]}]},
+     {probe, 'end',
+      [{printa, "sent up %@d down %@d from %s to %s\n", [msg_up, msg_down]}]}].
 
 begin_tick_end_script() ->
     [{probe, 'begin',

@@ -29,9 +29,15 @@ script(ScriptSrc, NodeOrPidStr) ->
     dyntrace_gen:script(?MODULE, ScriptSrc, NodeOrPidStr).
 
 %%-----------------------------------------------------------------------------
-%% dyntrace_gen callbacks
+%% dyntrace_gen callbacks - pass 1: preprocess
 %%-----------------------------------------------------------------------------
-probes(Probes, State) ->
+preprocess(_Probes, State) ->
+    {[], State}.
+
+%%-----------------------------------------------------------------------------
+%% dyntrace_gen callbacks - pass 2: generate
+%%-----------------------------------------------------------------------------
+generate(Probes, State) ->
     {sep_t(probe, Probes, "\n"), State}.
 
 init_state(PidStr) when is_list(PidStr) ->
@@ -93,6 +99,14 @@ op({'||', Ops}) ->
     ["(", sep_t(op, Ops, ") || ("), ")"];
 op({'==', Op1, Op2}) ->
     [{op,Op1}, " == ", {op,Op2}];
+op({'<', Op1, Op2}) ->
+    [{op,Op1}, " < ", {op,Op2}];
+op({'>', Op1, Op2}) ->
+    [{op,Op1}, " > ", {op,Op2}];
+op({'=<', Op1, Op2}) ->
+    [{op,Op1}, " <= ", {op,Op2}];
+op({'>=', Op1, Op2}) ->
+    [{op,Op1}, " >= ", {op,Op2}];
 op({arg_str, N}) when is_integer(N), N > 0 ->
     ["copyinstr(arg", ?i2l(N-1), ")"];
 op({arg, N}) when is_integer(N), N > 0 ->
