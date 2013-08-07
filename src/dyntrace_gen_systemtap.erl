@@ -110,6 +110,9 @@ probe_predicates(Preds) ->
 st(Item, State) ->
     {[{align, {st_body, Item}}], State}.
 
+st_body({set, Set, Keys}, State = #state{stats = Stats}) ->
+    {[?a2l(Set), "[", sep_t(op, Keys, ", "), "] = 1"],
+     State#state{stats = orddict:store(Set, {set, length(Keys)}, Stats)}};
 st_body({count, Count, Keys}, State = #state{stats = Stats,
                                              multi_keys = MKeys}) ->
     MVs = orddict:fold(fun(MK, MV, MVAcc) ->
@@ -121,9 +124,6 @@ st_body({count, Count, Keys}, State = #state{stats = Stats,
     {[?a2l(Count), "[", sep_t(op, Keys, ", "), "] <<< 1" |
       [["\n", {st, {set, MV, Keys}}] || MV <- MVs]],
      State#state{stats = orddict:store(Count, {count, length(Keys)}, Stats)}};
-st_body({set, Set, Keys}, State = #state{stats = Stats}) ->
-    {[?a2l(Set), "[", sep_t(op, Keys, ", "), "] = 1"],
-     State#state{stats = orddict:store(Set, {set, length(Keys)}, Stats)}};
 st_body({group, Items}, State) ->
     {[{nop, indent, "{\n"},
       sep_t(st, Items, "\n"),
@@ -219,4 +219,3 @@ outdent(Item, State = #state{level = Level}) ->
 
 align(Item, State) ->
     {[lists:duplicate(?INDENT * State#state.level, $ ), Item], State}.
-

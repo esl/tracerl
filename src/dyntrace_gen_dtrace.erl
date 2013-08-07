@@ -15,8 +15,7 @@
 -compile(export_all).
 
 -record(state, {pid,
-                sets = sets:new(),
-                counts = sets:new(),
+                stats = orddict:new(),
                 level = 0}).
 
 %%-----------------------------------------------------------------------------
@@ -44,11 +43,11 @@ init_state(PidStr) when is_list(PidStr) ->
     #state{pid = PidStr}.
 
 probe({probe, Point, Statements}, State) ->
-    {[{probe_point, Point}, " ", {st, {group, Statements}}], State};
+    {[{probe_point, Point}, " ", {st, {group, Statements}}, "\n"], State};
 probe({probe, Point, Predicate, Statements}, State) ->
     {[{probe_point, Point},
       "\n/ ", {op, Predicate}, " /\n",
-      {st, {group, Statements}}], State}.
+      {st, {group, Statements}}, "\n"], State}.
 
 probe_point('begin', State) ->
     {"BEGIN", State};
@@ -60,32 +59,32 @@ probe_point(Function, State) when is_integer(hd(Function)) ->
     {["erlang", State#state.pid, ":::", Function], State}.
 
 st(Item, State) ->
-    {Body, NewState} = st_body(Item, State),
-    {lists:duplicate(?INDENT * State#state.level, $ ) ++ Body, NewState}.
+    {[{align, {st_body, Item}}], State}.
 
-%% TODO refactor counts
-st_body({set, Key, Values}, State = #state{sets = Sets}) ->
+    %{Body, NewState} = st_body(Item, State),
+    %{lists:duplicate(?INDENT * State#state.level, $ ) ++ Body, NewState}.
+
+st_body({set, Key, Values}, State = #state{stats = Stats}) ->
     {[$@, ?a2l(Key), "[", sep_t(op, Values, ", "), "] = sum(0)"],
-     State#state{sets = sets:add_element(Key, Sets)}};
-st_body({count, Key, Values}, State = #state{counts = Counts}) ->
+     State#state{stats = orddict:store(Key, set, Stats)}};
+st_body({count, Key, Values}, State = #state{stats = Stats}) ->
     {[$@, ?a2l(Key), "[", sep_t(op, Values, ", "), "] = count()"],
-     State#state{counts = sets:add_element(Key, Counts)}};
-%% FIXME indentation
+     State#state{stats = orddict:store(Key, count, Stats)}};
 st_body({group, Items}, State) ->
-    {[{nop, indent, "{\n"}, sep_t(st, Items, ";\n"), {outdent, ";\n}\n"}],
+    {[{nop, indent, "{\n"},
+      sep_t(st, Items, ";\n"),
+      {nop, outdent, ";\n"}, {align, "}"}],
      State};
 st_body(exit, State) ->
     {["exit(0)"], State};
-st_body({printa, Format, Args}, State = #state{sets = Sets, counts = Counts}) ->
-    [] = sets:to_list(sets:intersection(Sets, Counts)),
-    Stats = sets:union(Sets, Counts),
+st_body({printa, Format, Args}, State = #state{stats = Stats}) ->
     ArgSpec = [printa_arg_spec(Arg, Stats) || Arg <- Args],
     {["printa(", sep([{op,Format} | ArgSpec], ", "), ")"], State};
 st_body({printf, Format, Args}, State) ->
     {["printf(", sep_t(op, [Format | Args], ", "), ")"], State}.
 
 printa_arg_spec(Arg, Stats) when is_atom(Arg) ->
-    true = sets:is_element(Arg, Stats),
+    true = orddict:is_key(Arg, Stats),
     [$@ | ?a2l(Arg)];
 printa_arg_spec(Arg, _Stats) ->
     {op, Arg}.
@@ -128,3 +127,6 @@ indent(Item, State = #state{level = Level}) ->
 
 outdent(Item, State = #state{level = Level}) ->
     {Item, State#state{level = Level-1}}.
+
+align(Item, State) ->
+    {[lists:duplicate(?INDENT * State#state.level, $ ), Item], State}.
