@@ -110,20 +110,14 @@ probe_predicates(Preds) ->
 st(Item, State) ->
     {[{align, {st_body, Item}}], State}.
 
-st_body({set, Set, Keys}, State = #state{stats = Stats}) ->
-    {[?a2l(Set), "[", sep_t(op, Keys, ", "), "] = 1"],
-     State#state{stats = orddict:store(Set, {set, length(Keys)}, Stats)}};
-st_body({count, Count, Keys}, State = #state{stats = Stats,
-                                             multi_keys = MKeys}) ->
-    MVs = orddict:fold(fun(MK, MV, MVAcc) ->
-                               case lists:member(Count, MK) of
-                                   true  -> [MV | MVAcc];
-                                   false -> MVAcc
-                               end
-                       end, [], MKeys),
-    {[?a2l(Count), "[", sep_t(op, Keys, ", "), "] <<< 1" |
-      [["\n", {st, {set, MV, Keys}}] || MV <- MVs]],
-     State#state{stats = orddict:store(Count, {count, length(Keys)}, Stats)}};
+st_body({set, Name, Keys}, State = #state{stats = Stats}) ->
+    {[?a2l(Name), "[", sep_t(op, Keys, ", "), "] = 1"],
+     State#state{stats = orddict:store(Name, {set, length(Keys)}, Stats)}};
+st_body({count, Name, Keys}, State) ->
+    stat_body({count, Name, Keys, 1}, State);
+st_body({Type, Name, Keys, Value}, State)
+  when Type == sum; Type == min; Type == max; Type == avg ->
+    stat_body({Type, Name, Keys, Value}, State);
 st_body({group, Items}, State) ->
     {[{nop, indent, "{\n"},
       sep_t(st, Items, "\n"),
@@ -147,6 +141,21 @@ st_body({printa, Format, Args}, State = #state{stats = Stats,
      State};
 st_body({printf, Format, Args}, State) ->
     {["printf(", sep_t(op, [Format | Args], ", "), ")"], State}.
+
+stat_body({Type, Name, Keys, Value}, State = #state{stats = Stats,
+                                                    multi_keys = MKeys}) ->
+    MVs = get_multi_vals(Name, MKeys),
+    {[?a2l(Name), "[", sep_t(op, Keys, ", "), "] <<< ", {op, Value} |
+      [["\n", {st, {set, MV, Keys}}] || MV <- MVs]],
+     State#state{stats = orddict:store(Name, {Type, length(Keys)}, Stats)}}.
+
+get_multi_vals(StatName, MKeys) ->
+    orddict:fold(fun(MK, MV, MVAcc) ->
+                         case lists:member(StatName, MK) of
+                             true  -> [MV | MVAcc];
+                             false -> MVAcc
+                         end
+                 end, [], MKeys).
 
 printa_items(Args, Stats) ->
     {RevItems, KeyNumber} =

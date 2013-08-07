@@ -61,15 +61,13 @@ probe_point(Function, State) when is_integer(hd(Function)) ->
 st(Item, State) ->
     {[{align, {st_body, Item}}], State}.
 
-    %{Body, NewState} = st_body(Item, State),
-    %{lists:duplicate(?INDENT * State#state.level, $ ) ++ Body, NewState}.
-
-st_body({set, Key, Values}, State = #state{stats = Stats}) ->
-    {[$@, ?a2l(Key), "[", sep_t(op, Values, ", "), "] = sum(0)"],
-     State#state{stats = orddict:store(Key, set, Stats)}};
-st_body({count, Key, Values}, State = #state{stats = Stats}) ->
-    {[$@, ?a2l(Key), "[", sep_t(op, Values, ", "), "] = count()"],
-     State#state{stats = orddict:store(Key, count, Stats)}};
+st_body({set, Name, Keys}, State) ->
+    stat_body({sum, Name, Keys, "0"}, State);
+st_body({count, Name, Keys}, State) ->
+    stat_body({count, Name, Keys, ""}, State);
+st_body({Type, Name, Keys, Value}, State)
+  when Type == sum; Type == min; Type == max; Type == avg ->
+    stat_body({Type, Name, Keys, {op, Value}}, State);
 st_body({group, Items}, State) ->
     {[{nop, indent, "{\n"},
       sep_t(st, Items, ";\n"),
@@ -82,6 +80,11 @@ st_body({printa, Format, Args}, State = #state{stats = Stats}) ->
     {["printa(", sep([{op,Format} | ArgSpec], ", "), ")"], State};
 st_body({printf, Format, Args}, State) ->
     {["printf(", sep_t(op, [Format | Args], ", "), ")"], State}.
+
+stat_body({Type, Name, Keys, Value}, State = #state{stats = Stats}) ->
+    {[$@, ?a2l(Name), "[", sep_t(op, Keys, ", "), "] = ", ?a2l(Type),
+      "(", Value, ")"],
+     State#state{stats = orddict:store(Name, Type, Stats)}}.
 
 printa_arg_spec(Arg, Stats) when is_atom(Arg) ->
     true = orddict:is_key(Arg, Stats),

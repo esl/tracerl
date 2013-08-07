@@ -14,6 +14,7 @@
 
 -define(msg, "message").
 -define(p2l(P), pid_to_list(P)).
+-define(i2l(I), integer_to_list(I)).
 
 suite() ->
     [{timetrap, {minutes, 1}}].
@@ -27,7 +28,8 @@ all() ->
              count_messages_by_sender_test,
              count_messages_by_sender_and_receiver_test,
              count_messages_up_down_test,
-             sender_and_receiver_set_test]
+             sender_and_receiver_set_test,
+             message_receive_stats_test]
     end.
 
 init_per_suite(Config) ->
@@ -144,16 +146,61 @@ sender_and_receiver_set_test(_Config) ->
     ?expect_not({line, {sent, "from", B, "to", A}}),
     ?expect_not({line, {sent, "from", A, "to", C}}).
 
+message_receive_stats_test(_Config) ->
+    Messages = ["1", "222", "33333333", "44444", "55"],
+    {Messages1, Messages2} = lists:split(3, Messages),
+    {Receiver1, Ref1} = spawn_monitor(fun() -> receive_all(Messages1) end),
+    {Receiver2, Ref2} = spawn_monitor(fun() -> receive_all(Messages2) end),
+    Sender1 = spawn(fun() ->
+                            send_all([hd(Messages1)]),
+                            self() ! {start, Receiver2},
+                            send_all(tl(Messages2))
+                    end),
+    Sender2 = spawn(fun() ->
+                            send_all([hd(Messages2)]),
+                            self() ! {start, Receiver1},
+                            send_all(tl(Messages1))
+                    end),
+    DP = start_trace(message_receive_stats_script([Receiver1, Receiver2])),
+    ?wait_for({line, {start}}),
+    Sender1 ! {start, Receiver1},
+    Sender2 ! {start, Receiver2},
+    receive {'DOWN', Ref1, process, Receiver1, normal} -> ok end,
+    receive {'DOWN', Ref2, process, Receiver2, normal} -> ok end,
+    dyntrace_process:stop(DP),
+    ?wait_for(eof),
+    {Receiver1Str, Receiver2Str} = {?p2l(Receiver1), ?p2l(Receiver2)},
+    [S1, S2, S3, S4, S5] =
+        [erts_debug:flat_size(M) || M <- Messages],
+    {Min1, Avg1, Max1, Total1} =
+        {?i2l(S1), ?i2l((S1+S2+S3) div 3), ?i2l(S3), ?i2l(S1+S2+S3)},
+    {Min2, Avg2, Max2, Total2} =
+        {?i2l(S5), ?i2l((S5+S4) div 2), ?i2l(S4), ?i2l(S4+S5)},
+    %ct:log("~p~n~p~n", [{Min1, Avg1, Max1, Total1},
+    %                    {Min2, Avg2, Max2, Total2}]),
+    ?expect({line, {pid, Receiver1Str, "received", "3", "messages:",
+                    "min", Min1, "avg", Avg1,
+                    "max", Max1, "total", Total1}}),
+    ?expect({line, {pid, Receiver2Str, "received", "2", "messages:",
+                    "min", Min2, "avg", Avg2,
+                    "max", Max2, "total", Total2}}).
+
 %%%-------------------------------------------------------------------
 %%% Test helpers
 %%%-------------------------------------------------------------------
 
 send_n(StartNo, EndNo) ->
-    receive {start, Receiver} -> ok end,
-    [Receiver ! {self(), No} || No <- lists:seq(StartNo, EndNo)].
+    send_all(lists:seq(StartNo, EndNo)).
 
 receive_n(StartNo, EndNo) ->
-    [receive {_, No} -> ok end || No <- lists:seq(StartNo, EndNo)].
+    receive_all(lists:seq(StartNo, EndNo)).
+
+send_all(Messages) ->
+    receive {start, Receiver} -> ok end,
+    [Receiver ! Msg || Msg <- Messages].
+
+receive_all(Messages) ->
+    [receive Msg -> ok end || Msg <- Messages].
 
 start_trace(ScriptSrc) ->
     Self = self(),
@@ -262,3 +309,19 @@ sender_and_receiver_set_script(Senders) ->
        {set, msg_proc, [{arg_str,1}, {arg_str,2}]}]},
      {probe, 'end',
       [{printa, "sent from %s to %s\n", [msg_proc]}]}].
+
+message_receive_stats_script(Receivers) ->
+    Predicates = [{'==', {arg_str,1}, Receiver} || Receiver <- Receivers],
+    [{probe, 'begin',
+      [{printf, "start\n", []}]},
+     {probe, "message-receive", {'||', Predicates},
+      [{printf, "received %s %d %d\n", [{arg_str,1}, {arg,2}, {arg,3}]},
+       {count, recv, [{arg_str,1}]},
+       {avg, avg_size, [{arg_str,1}], {arg,2}},
+       {min, min_size, [{arg_str,1}], {arg,2}},
+       {max, max_size, [{arg_str,1}], {arg,2}},
+       {sum, total_size, [{arg_str,1}], {arg,2}}]},
+     {probe, 'end',
+      [{printa, "pid %s received %@d messages: "
+        "min %@d avg %@d max %@d total %@d\n",
+        [recv, min_size, avg_size, max_size, total_size]}]}].
