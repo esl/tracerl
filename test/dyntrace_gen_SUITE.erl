@@ -26,7 +26,8 @@ all() ->
             [begin_tick_end_test,
              count_messages_by_sender_test,
              count_messages_by_sender_and_receiver_test,
-             count_messages_up_down_test]
+             count_messages_up_down_test,
+             sender_and_receiver_set_test]
     end.
 
 init_per_suite(Config) ->
@@ -40,12 +41,20 @@ end_per_suite(_Config) ->
 %%%-------------------------------------------------------------------
 -define(wait_for(Pattern, Timeout),
         receive
-            Pattern -> ok
+            Pattern ->
+                ok
         after Timeout ->
                 erlang:error(not_found)
         end).
 -define(expect(Pattern), ?wait_for(Pattern, 0)).
 -define(wait_for(Pattern), ?wait_for(Pattern, 10000)).
+-define(expect_not(Pattern),
+        receive
+            Pattern ->
+                erlang:error(found_unexpected)
+        after 0 ->
+                ok
+        end).
 
 begin_tick_end_test(_Config) ->
     DP = start_trace(begin_tick_end_script()),
@@ -116,6 +125,25 @@ count_messages_up_down_test(_Config) ->
     ?expect({line, {sent, "up", "10", "down", "5", "from", C, "to", D}}),
     ?expect({line, {sent, "up", "5", "down", "10", "from", A, "to", D}}).
 
+sender_and_receiver_set_test(_Config) ->
+    Ps = ring_start(3),
+    DP = start_trace(sender_and_receiver_set_script(Ps)),
+    ?wait_for({line, {start}}),
+    Ref1 = ring_send(Ps, 1, self()),
+    Ref2 = ring_send(tl(Ps), 1, self()),
+    receive {finished, Ref1} -> ok end,
+    receive {finished, Ref2} -> ok end,
+    dyntrace_process:stop(DP),
+    ring_stop(Ps),
+    [A, B, C] = [?p2l(P) || P <- Ps],
+    ?wait_for(eof),
+    ?expect({line, {sent, "from", A, "to", B}}),
+    ?expect({line, {sent, "from", B, "to", C}}),
+    ?expect({line, {sent, "from", C, "to", A}}),
+    ?expect({line, {sent, "from", C, "to", B}}),
+    ?expect_not({line, {sent, "from", B, "to", A}}),
+    ?expect_not({line, {sent, "from", A, "to", C}}).
+
 %%%-------------------------------------------------------------------
 %%% Test helpers
 %%%-------------------------------------------------------------------
@@ -182,6 +210,14 @@ ring_send(Ps, MsgNum, Pid) ->
 %%% Dyntrace scripts
 %%%-------------------------------------------------------------------
 
+begin_tick_end_script() ->
+    [{probe, 'begin',
+      [{printf, "begun\n", []}]},
+     {probe, {tick, 1},
+      [{printf, "ticked\n", []}]},
+     {probe, 'end',
+      [{printf, "ended\n", []}]}].
+
 count_messages_by_sender_script(Senders) ->
     Predicates = [{'==', {arg_str,1}, Sender} || Sender <- Senders],
     [{probe, 'begin',
@@ -217,10 +253,12 @@ count_messages_up_down_script(Senders) ->
      {probe, 'end',
       [{printa, "sent up %@d down %@d from %s to %s\n", [msg_up, msg_down]}]}].
 
-begin_tick_end_script() ->
+sender_and_receiver_set_script(Senders) ->
+    Predicates = [{'==', {arg_str,1}, Sender} || Sender <- Senders],
     [{probe, 'begin',
-      [{printf, "begun\n", []}]},
-     {probe, {tick, 1},
-      [{printf, "ticked\n", []}]},
+      [{printf, "start\n", []}]},
+     {probe, "message-send", {'||', Predicates},
+      [{printf, "sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
+       {set, msg_proc, [{arg_str,1}, {arg_str,2}]}]},
      {probe, 'end',
-      [{printf, "ended\n", []}]}].
+      [{printa, "sent from %s to %s\n", [msg_proc]}]}].

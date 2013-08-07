@@ -160,7 +160,7 @@ printa_items(Args, Stats) ->
     {lists:reverse(RevItems), KeyNumber}.
 
 printa_args_spec(Format, Items, KeyNum) ->
-    {ArgsSpec, {[], KeyN}} =
+    {ArgsSpec, {_, KeyN}} =
         lists:mapfoldl(
           fun([$@|_], {[{Name, Type}|Itms], KeyNo}) ->
                   {["@", ?a2l(Type), "(", ?a2l(Name),
