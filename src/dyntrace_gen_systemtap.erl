@@ -118,6 +118,8 @@ st_body({count, Name, Keys}, State) ->
 st_body({Type, Name, Keys, Value}, State)
   when Type == sum; Type == min; Type == max; Type == avg ->
     stat_body({Type, Name, Keys, Value}, State);
+st_body({reset, Name}, State) ->
+    {["delete ", ?a2l(Name)], State};
 st_body({group, Items}, State) ->
     {[{nop, indent, "{\n"},
       sep_t(st, Items, "\n"),

@@ -26,6 +26,7 @@ all() ->
         _ ->
             [begin_tick_end_test,
              count_messages_by_sender_test,
+             count_messages_by_sender_with_reset_test,
              count_messages_by_sender_and_receiver_test,
              count_messages_up_down_test,
              sender_and_receiver_set_test,
@@ -82,6 +83,25 @@ count_messages_by_sender_test(_Config) ->
     {Sender1Str, Sender2Str} = {?p2l(Sender1), ?p2l(Sender2)},
     ?expect({line, {sent, "10", "from", Sender1Str}}),
     ?expect({line, {sent, "20", "from", Sender2Str}}).
+
+count_messages_by_sender_with_reset_test(_Config) ->
+    {Receiver, Ref} = spawn_monitor(fun() -> receive_n(1, 30) end),
+    Sender1 = spawn(fun() -> send_n(1, 5) end),
+    Sender2 = spawn(fun() -> send_n(6, 20), send_n(21, 30) end),
+    DP = start_trace(
+           count_messages_by_sender_with_reset_script([Sender1, Sender2])),
+    ?wait_for({line, {start}}),
+    Sender1 ! {start, Receiver},
+    Sender2 ! {start, Receiver},
+    {Sender1Str, Sender2Str} = {?p2l(Sender1), ?p2l(Sender2)},
+    ?wait_for({line, {sent, "5", "from", Sender1Str}}),
+    ?wait_for({line, {sent, "15", "from", Sender2Str}}, 1000),
+    Sender2 ! {start, Receiver},
+    receive {'DOWN', Ref, process, Receiver, normal} -> ok end,
+    ?wait_for({line, {sent, "10", "from", Sender2Str}}),
+    dyntrace_process:stop(DP),
+    ?wait_for(eof),
+    ?expect_not({line, {sent, _, _, _}}).
 
 count_messages_by_sender_and_receiver_test(_Config) ->
     {Receiver1, Ref1} = spawn_monitor(fun() -> receive_n(1, 30) end),
@@ -211,6 +231,9 @@ start_trace(ScriptSrc) ->
 
 collect(Dest, Output) ->
     receive
+        {line, "DEBUG " ++ _ = L} ->
+            TermL = termify_line(L),
+            collect(Dest, [TermL|Output]);
         {line, L} ->
             TermL = termify_line(L),
             Dest ! {line, TermL},
@@ -270,17 +293,28 @@ count_messages_by_sender_script(Senders) ->
     [{probe, 'begin',
       [{printf, "start\n", []}]},
      {probe, "message-send", {'||', Predicates},
-      [{printf, "sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
+      [{printf, "DEBUG sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
        {count, msg, [{arg_str,1}]}]},
      {probe, 'end',
       [{printa, "sent %@d from %s\n", [msg]}]}].
+
+count_messages_by_sender_with_reset_script(Senders) ->
+    Predicates = [{'==', {arg_str,1}, Sender} || Sender <- Senders],
+    [{probe, 'begin',
+      [{printf, "start\n", []}]},
+     {probe, "message-send", {'||', Predicates},
+      [{printf, "DEBUG sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
+       {count, msg, [{arg_str,1}]}]},
+     {probe, {tick, 1},
+      [{printa, "sent %@d from %s\n", [msg]},
+       {reset, msg}]}].
 
 count_messages_by_sender_and_receiver_script(Senders) ->
     Predicates = [{'==', {arg_str,1}, Sender} || Sender <- Senders],
     [{probe, 'begin',
       [{printf, "start\n", []}]},
      {probe, "message-send", {'||', Predicates},
-      [{printf, "sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
+      [{printf, "DEBUG sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
        {count, msg, [{arg_str,1}, {arg_str,2}]}]},
      {probe, 'end',
       [{printa, "sent %@d from %s to %s\n", [msg]}]}].
@@ -291,11 +325,11 @@ count_messages_up_down_script(Senders) ->
       [{printf, "start\n", []}]},
      {probe, "message-send", {'&&', [{'||', Predicates},
                                      {'<', {arg_str,1}, {arg_str,2}}]},
-      [{printf, "sent up %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
+      [{printf, "DEBUG sent up %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
        {count, msg_up, [{arg_str,1}, {arg_str,2}]}]},
      {probe, "message-send", {'&&', [{'||', Predicates},
                                      {'>', {arg_str,1}, {arg_str,2}}]},
-      [{printf, "sent down %s %s %d\n", [{arg_str,2}, {arg_str,1}, {arg,3}]},
+      [{printf, "DEBUG sent down %s %s %d\n", [{arg_str,2}, {arg_str,1}, {arg,3}]},
        {count, msg_down, [{arg_str,2}, {arg_str,1}]}]},
      {probe, 'end',
       [{printa, "sent up %@d down %@d from %s to %s\n", [msg_up, msg_down]}]}].
@@ -305,7 +339,7 @@ sender_and_receiver_set_script(Senders) ->
     [{probe, 'begin',
       [{printf, "start\n", []}]},
      {probe, "message-send", {'||', Predicates},
-      [{printf, "sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
+      [{printf, "DEBUG sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
        {set, msg_proc, [{arg_str,1}, {arg_str,2}]}]},
      {probe, 'end',
       [{printa, "sent from %s to %s\n", [msg_proc]}]}].
@@ -315,7 +349,7 @@ message_receive_stats_script(Receivers) ->
     [{probe, 'begin',
       [{printf, "start\n", []}]},
      {probe, "message-receive", {'||', Predicates},
-      [{printf, "received %s %d %d\n", [{arg_str,1}, {arg,2}, {arg,3}]},
+      [{printf, "DEBUG received %s %d %d\n", [{arg_str,1}, {arg,2}, {arg,3}]},
        {count, recv, [{arg_str,1}]},
        {avg, avg_size, [{arg_str,1}], {arg,2}},
        {min, min_size, [{arg_str,1}], {arg,2}},
