@@ -19,7 +19,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {port, quit_pid, src_file, handler, script}).
+-record(state, {port, quit_pid, src_file, handler, script, data=[]}).
 
 -define(l2b(L), list_to_binary(L)).
 -define(l2i(L), list_to_integer(L)).
@@ -109,16 +109,23 @@ handle_cast(_Msg, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_info({Port, {data, {eol, Line}}}, State = #state{port = Port,
-                                                        handler = Handler}) ->
-    Handler({line, Line}),
-    {noreply, State};
-handle_info({Port, eof}, State = #state{port = Port, handler = Handler}) ->
+handle_info({Port, {data, {noeol, LinePart}}},
+            State = #state{port = Port, data = Data}) ->
+    {noreply, State#state{data = [LinePart|Data]}};
+handle_info({Port, {data, {eol, Line}}},
+            State = #state{port = Port, handler = Handler, data = Data}) ->
+    Handler({line, lists:flatten(lists:reverse([Line|Data]))}),
+    {noreply, State#state{data=[]}};
+handle_info({Port, eof},
+            State = #state{port = Port, handler = Handler, data = Data}) ->
+    case Data of
+        [] -> ok;
+        _  -> Handler({line, lists:flatten(lists:reverse(Data))})
+    end,
     Handler(eof),
     port_close(Port),
     {stop, normal, State};
-handle_info(Info, State) ->
-    io:format("~p~n", [Info]),
+handle_info(_Info, State) ->
     {noreply, State}.
 
 %%--------------------------------------------------------------------
