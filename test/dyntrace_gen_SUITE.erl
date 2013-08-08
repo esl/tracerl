@@ -27,6 +27,7 @@ all() ->
         _ ->
             [begin_tick_end_test,
              variable_test,
+             associative_array_test,
              count_messages_by_sender_test,
              count_messages_by_sender_with_reset_test,
              count_messages_by_sender_and_receiver_test,
@@ -86,8 +87,20 @@ variable_test(_Config) ->
     dyntrace_process:stop(DP),
     ?wait_for(eof),
     ?expect({line, ["last", Sender, Receiver, Size2]}),
-    ?expect({line, ["total", "num", 2, "size", TotalSize]}),
-    ct:log("~p~n",[self()]).
+    ?expect({line, ["total", "num", 2, "size", TotalSize]}).
+
+associative_array_test(_Config) ->
+    Messages = ["aa", "bbbb"],
+    {Receiver, Ref} = spawn_monitor(fun() -> receive_all(Messages) end),
+    Sender = spawn(fun() -> send_all(Messages) end),
+    DP = start_trace(associative_array_script(Sender)),
+    ?wait_for({line, ["start"]}),
+    Sender ! {start, Receiver},
+    receive {'DOWN', Ref, process, Receiver, normal} -> ok end,
+    dyntrace_process:stop(DP),
+    ?wait_for(eof),
+    TotalSize = lists:sum([?msize(M) || M <- Messages]),
+    ?expect({line, ["total", "num", 2, "size", TotalSize]}).
 
 count_messages_by_sender_test(_Config) ->
     {Receiver, Ref} = spawn_monitor(fun() -> receive_n(1, 30) end),
@@ -101,8 +114,7 @@ count_messages_by_sender_test(_Config) ->
     dyntrace_process:stop(DP),
     ?wait_for(eof),
     ?expect({line, ["sent", 10, "from", Sender1]}),
-    ?expect({line, ["sent", 20, "from", Sender2]}),
-    ct:log("~p~n",[self()]).
+    ?expect({line, ["sent", 20, "from", Sender2]}).
 
 count_messages_by_sender_with_reset_test(_Config) ->
     {Receiver, Ref} = spawn_monitor(fun() -> receive_n(1, 30) end),
@@ -320,6 +332,19 @@ variable_script(Sender) ->
      {probe, 'end',
       [{printf, "last %s %s %d\n", [sender, receiver, size]},
        {printf, "total num %d size %d\n", [total_num, total_size]}]}].
+
+associative_array_script(Sender) ->
+    [{probe, 'begin',
+      [{'=', total, ["num"], 0},
+       {'=', total, ["size"], 0},
+       {printf, "start\n", []}]},
+     {probe, "message-send", {'==', {arg_str,1}, Sender},
+      [{'++', total, ["num"]},
+       {'+=', total, ["size"], {arg,3}},
+       {printf, "DEBUG sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]}]},
+     {probe, 'end',
+      [{printf, "total num %d size %d\n", [{total, ["num"]},
+                                           {total, ["size"]}]}]}].
 
 count_messages_by_sender_script(Senders) ->
     Predicates = [{'==', {arg_str,1}, Sender} || Sender <- Senders],
