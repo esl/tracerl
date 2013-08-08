@@ -45,7 +45,6 @@ start_trace(ScriptSrc, PortArgs, Node) ->
     PidStr = rpc:call(Node, erlang, pid_to_list, [Pid]),
     Termination = termination_probe(PidStr),
     Script = ?dyntrace_gen(Node):script([Termination|ScriptSrc], Node),
-    io:format("~s~n", [Script]),
     {A, B, C} = now(),
     SrcFile = lists:flatten(io_lib:format("dyntrace-script-~p-~p.~p.~p",
                                           [node(), A, B, C])),
@@ -57,7 +56,7 @@ start_trace(ScriptSrc, PortArgs, Node) ->
                    [os:find_executable(stap), SrcFile]
            end,
     Port = open_port({spawn_executable, Sudo}, [{args, Args} | PortArgs]),
-    {Port, Pid, SrcFile}.
+    {Port, Pid, SrcFile, Script}.
 
 quit(Pid) ->
     exit(Pid, quit).

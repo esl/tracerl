@@ -227,6 +227,7 @@ start_trace(ScriptSrc) ->
     Collector = spawn(fun() -> collect(Self, []) end),
     {ok, DP} = dyntrace_process:start_link(ScriptSrc, node(),
                                            fun(Msg) -> Collector ! Msg end),
+    ct:log(gen_server:call(DP, get_script)),
     DP.
 
 collect(Dest, Output) ->

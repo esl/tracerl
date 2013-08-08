@@ -19,7 +19,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {port, quit_pid, src_file, handler}).
+-record(state, {port, quit_pid, src_file, handler, script}).
 
 -define(l2b(L), list_to_binary(L)).
 -define(l2i(L), list_to_integer(L)).
@@ -35,8 +35,8 @@
 %% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start_link(Script, Node, Handler) ->
-    gen_server:start_link(?MODULE, [Script, Node, Handler], []).
+start_link(ScriptSrc, Node, Handler) ->
+    gen_server:start_link(?MODULE, [ScriptSrc, Node, Handler], []).
 
 stop(Pid) ->
     gen_server:cast(Pid, stop).
@@ -56,10 +56,12 @@ stop(Pid) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([Script, Node, Handler]) ->
-    {Port, QuitPid, SrcFile} = dyntrace_util:start_trace(Script, Node),
+init([ScriptSrc, Node, Handler]) ->
+    {Port, QuitPid, SrcFile, Script} =
+        dyntrace_util:start_trace(ScriptSrc, Node),
     {ok, #state{port = Port, quit_pid = QuitPid,
-                src_file = SrcFile, handler = Handler}}.
+                src_file = SrcFile, handler = Handler,
+                script = Script}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -75,6 +77,8 @@ init([Script, Node, Handler]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
+handle_call(get_script, _From, State = #state{script = Script}) ->
+    {reply, Script, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
