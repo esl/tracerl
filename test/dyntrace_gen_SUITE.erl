@@ -80,12 +80,15 @@ variable_test(_Config) ->
     Sender ! {start, Receiver},
     receive {'DOWN', Ref, process, Receiver, normal} -> ok end,
     {SenderStr, ReceiverStr} = {?p2l(Sender), ?p2l(Receiver)},
-    [Size1, Size2] = [?i2l(?msize(M)) || M <- Messages],
-    ?wait_for({line, {sent, SenderStr, ReceiverStr, Size1}}),
-    ?wait_for({line, {sent, SenderStr, ReceiverStr, Size2}}),
+    Sizes = [?msize(M) || M <- Messages],
+    [Size1Str, Size2Str] = [?i2l(S) || S <- Sizes],
+    TotalSizeStr = ?i2l(lists:sum(Sizes)),
+    ?wait_for({line, {sent, SenderStr, ReceiverStr, Size1Str}}),
+    ?wait_for({line, {sent, SenderStr, ReceiverStr, Size2Str}}),
     dyntrace_process:stop(DP),
     ?wait_for(eof),
-    ?expect({line, {last, SenderStr, ReceiverStr, Size2}}).
+    ?expect({line, {last, SenderStr, ReceiverStr, Size2Str}}),
+    ?expect({line, {total, "num", "2", "size", TotalSizeStr}}).
 
 count_messages_by_sender_test(_Config) ->
     {Receiver, Ref} = spawn_monitor(fun() -> receive_n(1, 30) end),
@@ -320,7 +323,7 @@ variable_script(Sender) ->
        {printf, "sent %s %s %d\n", [sender, receiver, size]}]},
      {probe, 'end',
       [{printf, "last %s %s %d\n", [sender, receiver, size]},
-       {printf, "total num %d size %d", [total_num, total_size]}]}].
+       {printf, "total num %d size %d\n", [total_num, total_size]}]}].
 
 count_messages_by_sender_script(Senders) ->
     Predicates = [{'==', {arg_str,1}, Sender} || Sender <- Senders],
