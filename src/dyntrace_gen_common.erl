@@ -1,0 +1,93 @@
+%%%-------------------------------------------------------------------
+%%% @author Pawel Chrzaszcz
+%%% @copyright (C) 2013, Erlang Solutions Ltd.
+%%% @doc Common callbacks for dtrace and systemtap
+%%%
+%%% @end
+%%% Created : 8 Aug 2013 by pawel.chrzaszcz@erlang-solutions.com
+%%%-------------------------------------------------------------------
+-module(dyntrace_gen_common).
+
+-include("dyntrace_util.hrl").
+
+-import(dyntrace_gen_util, [sep/2, sep_t/3, tag/2, sep_f/3]).
+
+%% pass 1
+-export([preprocess/2, pre_probe/2, pre_st/2]).
+
+%% pass 2
+-export([st/2, st_body/2, op/2, nop/2, indent/2, outdent/2, align/2]).
+
+%%-----------------------------------------------------------------------------
+%% common callbacks for systemtap and dtrace - pass 1: preprocess
+%%-----------------------------------------------------------------------------
+preprocess(Probes, State) ->
+    {tag(pre_probe, Probes), State}.
+
+pre_probe({probe, Point, _Predicate, Statements}, State) ->
+    pre_probe({probe, Point, Statements}, State);
+pre_probe({probe, _Point, Statements}, State) ->
+    {tag(pre_st, Statements), State}.
+
+pre_st({?op_assign, Name, _Value}, State) ->
+    add_var(Name, State);
+pre_st({?op_assign, Name, _Keys, _Value}, State) ->
+    add_var(Name, State);
+pre_st(_, State) ->
+    {[], State}.
+
+%% helpers
+
+add_var(Name, State = #gen_state{vars = Vars}) ->
+    {[], State#gen_state{vars = ordsets:add_element(Name, Vars)}}.
+
+%%-----------------------------------------------------------------------------
+%% common callbacks for systemtap and dtrace - pass 2: generate
+%%-----------------------------------------------------------------------------
+st(Item, State) ->
+    {[{align, {st_body, Item}}], State}.
+
+st_body({Op, Name, Value}, State = #gen_state{vars = Vars})
+  when ?is_assign2(Op) ->
+    true = ordsets:is_element(Name, Vars),
+    {[?a2l(Name), " ", ?a2l(Op), " ", {op, Value}], State};
+st_body({Op, Name, Keys, Value}, State = #gen_state{vars = Vars})
+  when ?is_assign2(Op) ->
+    true = ordsets:is_element(Name, Vars),
+    {[?a2l(Name), "[", sep_t(op, Keys, ", "), "] ", ?a2l(Op), " ",
+      {op, Value}], State};
+st_body({Op, Name}, State = #gen_state{vars = Vars})
+  when ?is_assign1(Op) ->
+    true = ordsets:is_element(Name, Vars),
+    {[?a2l(Name), " ", ?a2l(Op)], State};
+st_body({Op, Name, Keys}, State = #gen_state{vars = Vars})
+  when ?is_assign1(Op) ->
+    true = ordsets:is_element(Name, Vars),
+    {[?a2l(Name), "[", sep_t(op, Keys, ", "), "] ", ?a2l(Op)], State}.
+
+op({Op, Operand1, Operand2}, State) when ?is_logic2(Op); ?is_arith2(Op) ->
+    op({Op, [Operand1, Operand2]}, State);
+op({Op, Operands}, State) when ?is_logic2(Op); ?is_arith2(Op) ->
+    {["(", sep_t(op, Operands, [") ", ?a2l(Op), " ("]), ")"], State};
+op({Op, Operand}, State) when ?is_logic1(Op); ?is_arith1(Op) ->
+    {[?a2l(Op), "(", {op, Operand}, ")"], State};
+op({Op, Operand1, Operand2}, State) when ?is_cmp(Op) ->
+    {[{op, Operand1}, " ", ?a2l(Op), " ", {op, Operand2}], State};
+op(Name, State = #gen_state{vars = Vars}) when is_atom(Name) ->
+    true = ordsets:is_element(Name, Vars),
+    {?a2l(Name), State};
+op({Name, Keys}, State = #gen_state{vars = Vars}) when is_atom(Name) ->
+    true = ordsets:is_element(Name, Vars),
+    {[?a2l(Name), "[", sep_t(op, Keys, ", "), "]"], State}.
+
+nop(Item, State) ->
+    {Item, State}.
+
+indent(Item, State = #gen_state{level = Level}) ->
+    {Item, State#gen_state{level = Level+1}}.
+
+outdent(Item, State = #gen_state{level = Level}) ->
+    {Item, State#gen_state{level = Level-1}}.
+
+align(Item, State) ->
+    {[lists:duplicate(?INDENT * State#gen_state.level, $ ), Item], State}.

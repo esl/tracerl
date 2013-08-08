@@ -13,6 +13,7 @@
 -compile(export_all).
 
 -define(msg, "message").
+-define(msize(Msg), erts_debug:flat_size(Msg)).
 -define(p2l(P), pid_to_list(P)).
 -define(i2l(I), integer_to_list(I)).
 
@@ -25,6 +26,7 @@ all() ->
             {skip, "No dynamic trace in this run-time system"};
         _ ->
             [begin_tick_end_test,
+             variable_test,
              count_messages_by_sender_test,
              count_messages_by_sender_with_reset_test,
              count_messages_by_sender_and_receiver_test,
@@ -61,13 +63,29 @@ end_per_suite(_Config) ->
 
 begin_tick_end_test(_Config) ->
     DP = start_trace(begin_tick_end_script()),
-    ?wait_for({line, {begun}}),
+    ?wait_for({line, {start}}),
     ?wait_for({line, {ticked}}),
     ?wait_for({line, {ticked}}),
     ?wait_for({line, {ticked}}),
     dyntrace_process:stop(DP),
     ?wait_for(eof),
-    ?expect({line, {ended}}).
+    ?expect({line, {finish}}).
+
+variable_test(_Config) ->
+    Messages = ["aa", "bbbb"],
+    {Receiver, Ref} = spawn_monitor(fun() -> receive_all(Messages) end),
+    Sender = spawn(fun() -> send_all(Messages) end),
+    DP = start_trace(variable_script(Sender)),
+    ?wait_for({line, {start}}),
+    Sender ! {start, Receiver},
+    receive {'DOWN', Ref, process, Receiver, normal} -> ok end,
+    {SenderStr, ReceiverStr} = {?p2l(Sender), ?p2l(Receiver)},
+    [Size1, Size2] = [?i2l(?msize(M)) || M <- Messages],
+    ?wait_for({line, {sent, SenderStr, ReceiverStr, Size1}}),
+    ?wait_for({line, {sent, SenderStr, ReceiverStr, Size2}}),
+    dyntrace_process:stop(DP),
+    ?wait_for(eof),
+    ?expect({line, {last, SenderStr, ReceiverStr, Size2}}).
 
 count_messages_by_sender_test(_Config) ->
     {Receiver, Ref} = spawn_monitor(fun() -> receive_n(1, 30) end),
@@ -95,7 +113,7 @@ count_messages_by_sender_with_reset_test(_Config) ->
     Sender2 ! {start, Receiver},
     {Sender1Str, Sender2Str} = {?p2l(Sender1), ?p2l(Sender2)},
     ?wait_for({line, {sent, "5", "from", Sender1Str}}),
-    ?wait_for({line, {sent, "15", "from", Sender2Str}}, 1000),
+    ?wait_for({line, {sent, "15", "from", Sender2Str}}),
     Sender2 ! {start, Receiver},
     receive {'DOWN', Ref, process, Receiver, normal} -> ok end,
     ?wait_for({line, {sent, "10", "from", Sender2Str}}),
@@ -190,8 +208,7 @@ message_receive_stats_test(_Config) ->
     dyntrace_process:stop(DP),
     ?wait_for(eof),
     {Receiver1Str, Receiver2Str} = {?p2l(Receiver1), ?p2l(Receiver2)},
-    [S1, S2, S3, S4, S5] =
-        [erts_debug:flat_size(M) || M <- Messages],
+    [S1, S2, S3, S4, S5] = [?msize(M) || M <- Messages],
     {Min1, Avg1, Max1, Total1} =
         {?i2l(S1), ?i2l((S1+S2+S3) div 3), ?i2l(S3), ?i2l(S1+S2+S3)},
     {Min2, Avg2, Max2, Total2} =
@@ -283,11 +300,27 @@ ring_send(Ps, MsgNum, Pid) ->
 
 begin_tick_end_script() ->
     [{probe, 'begin',
-      [{printf, "begun\n", []}]},
+      [{printf, "start\n", []}]},
      {probe, {tick, 1},
       [{printf, "ticked\n", []}]},
      {probe, 'end',
-      [{printf, "ended\n", []}]}].
+      [{printf, "finish\n", []}]}].
+
+variable_script(Sender) ->
+    [{probe, 'begin',
+      [{'=', total_num, 0},
+       {'=', total_size, 0},
+       {printf, "start\n", []}]},
+     {probe, "message-send", {'==', {arg_str,1}, Sender},
+      [{'=', sender, {arg_str,1}},
+       {'=', receiver, {arg_str,2}},
+       {'=', size, {arg,3}},
+       {'++', total_num},
+       {'+=', total_size, size},
+       {printf, "sent %s %s %d\n", [sender, receiver, size]}]},
+     {probe, 'end',
+      [{printf, "last %s %s %d\n", [sender, receiver, size]},
+       {printf, "total num %d size %d", [total_num, total_size]}]}].
 
 count_messages_by_sender_script(Senders) ->
     Predicates = [{'==', {arg_str,1}, Sender} || Sender <- Senders],

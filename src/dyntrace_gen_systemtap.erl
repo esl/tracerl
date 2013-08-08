@@ -14,11 +14,9 @@
 
 -compile(export_all).
 
--record(state, {name,
-                pid,
-                stats = orddict:new(),
-                multi_keys = orddict:new(),
-                level = 0}).
+-record(sstate, {name,
+                 pid,
+                 multi_keys = orddict:new()}).
 
 %%-----------------------------------------------------------------------------
 %% API
@@ -32,23 +30,16 @@ script(ScriptSrc, NodeOrPidStr) ->
 %%-----------------------------------------------------------------------------
 %% dyntrace_gen callbacks - pass 1: preprocess
 %%-----------------------------------------------------------------------------
-preprocess(Probes, State) ->
-    {tag(pre_probe, Probes), State}.
-
-pre_probe({probe, Point, _Predicate, Statements}, State) ->
-    pre_probe({probe, Point, Statements}, State);
-pre_probe({probe, _Point, Statements}, State) ->
-    {tag(pre_st, Statements), State}.
-
 pre_st({printa, _Format, Args}, State) when length(Args) =< 1 ->
     {[], State};
-pre_st({printa, _Format, Args}, State = #state{multi_keys = MKeys0}) ->
+pre_st({printa, _Format, Args},
+       State = #gen_state{st = SState = #sstate{multi_keys = MKeys0}}) ->
     MKey = lists:sort(Args),
     MV = sep_f(MKey, "__", fun atom_to_list/1),
     MKeys = orddict:store(MKey, list_to_atom(lists:flatten(MV)), MKeys0),
-    {[], State#state{multi_keys = MKeys}};
-pre_st(_, State) ->
-    {[], State}.
+    {[], State#gen_state{st = SState#sstate{multi_keys = MKeys}}};
+pre_st(_, _) ->
+    false.
 
 %%-----------------------------------------------------------------------------
 %% dyntrace_gen callbacks - pass 2: generate
@@ -60,13 +51,15 @@ init_state(PidStr) when is_list(PidStr) ->
     Name = os:cmd(io_lib:format(
                     "ps -p ~p -o command | tail -n 1 | awk '{print $1}'",
                     [PidStr])),
-    #state{name = re:replace(Name, "\\s*$", "", [{return, list}]),
-           pid = PidStr}.
+    SState = #sstate{name = re:replace(Name, "\\s*$", "", [{return, list}]),
+                     pid = PidStr},
+    #gen_state{st = SState}.
 
-add_globals(Script, State = #state{stats = []}) ->
+add_globals(Script, State = #gen_state{stats = [], vars = []}) ->
     {Script, State};
-add_globals(Script, State = #state{stats = Stats}) ->
-    {["global ", sep_f(orddict:fetch_keys(Stats), ", ", fun atom_to_list/1),
+add_globals(Script, State = #gen_state{stats = Stats, vars = Vars}) ->
+    {["global ", sep_f(orddict:fetch_keys(Stats) ++ ordsets:to_list(Vars),
+                       ", ", fun atom_to_list/1),
       "\n" | Script],
      State}.
 
@@ -78,16 +71,16 @@ probe({probe, Point, Predicate, Statements}, State) when not is_list(Point) ->
       {align, "if ("}, {op, Predicate}, ") ",
       {st_body, {group, Statements}},
       {outdent, "\n}\n"}], State};
-probe({probe, Point, Statements}, State) ->
+probe({probe, Point, Statements}, State = #gen_state{st = SState}) ->
     {[{probe_point, Point},
       {nop, indent, " {\n"},
-      {align, "if (pid() == "}, State#state.pid, ") ",
+      {align, "if (pid() == "}, SState#sstate.pid, ") ",
       {st_body, {group, Statements}},
       {outdent, "\n}\n"}], State};
-probe({probe, Point, Predicate, Statements}, State) ->
+probe({probe, Point, Predicate, Statements}, State = #gen_state{st = SState}) ->
     {[{probe_point, Point},
       {nop, indent, " {\n"},
-      {align, "if (pid() == "}, State#state.pid,
+      {align, "if (pid() == "}, SState#sstate.pid,
       " && (", {op, Predicate}, ")) ",
       {st_body, {group, Statements}},
       {outdent, "\n}\n"}], State}.
@@ -98,21 +91,14 @@ probe_point('end', State) ->
     {"probe end", State};
 probe_point({tick, N}, State) ->
     {["probe timer.s(", ?i2l(N), ")"], State};
-probe_point(Function, State) when is_integer(hd(Function)) ->
-    {["probe process(\"", State#state.name, "\").mark(\"", Function, "\")"],
+probe_point(Function, State = #gen_state{st = SState})
+  when is_integer(hd(Function)) ->
+    {["probe process(\"", SState#sstate.name, "\").mark(\"", Function, "\")"],
      State}.
 
-probe_predicates([SinglePred]) ->
-    op(SinglePred);
-probe_predicates(Preds) ->
-    op({'&&', Preds}).
-
-st(Item, State) ->
-    {[{align, {st_body, Item}}], State}.
-
-st_body({set, Name, Keys}, State = #state{stats = Stats}) ->
+st_body({set, Name, Keys}, State = #gen_state{stats = Stats}) ->
     {[?a2l(Name), "[", sep_t(op, Keys, ", "), "] = 1"],
-     State#state{stats = orddict:store(Name, {set, length(Keys)}, Stats)}};
+     State#gen_state{stats = orddict:store(Name, {set, length(Keys)}, Stats)}};
 st_body({count, Name, Keys}, State) ->
     stat_body({count, Name, Keys, 1}, State);
 st_body({Type, Name, Keys, Value}, State)
@@ -127,29 +113,31 @@ st_body({group, Items}, State) ->
      State};
 st_body(exit, State) ->
     {["exit()"], State};
-st_body({printa, Format, Args}, State = #state{stats = Stats,
-                                               multi_keys = MKeys}) ->
+st_body({printa, Format, Args}, State = #gen_state{stats = Stats,
+                                                   st = SState}) ->
     {Items, KeyNum} = printa_items(Args, Stats),
     ArgSpec = printa_args_spec(Format, Items, KeyNum),
     PrintfFormat = re:replace(Format, "@", "", [{return, list}, global]),
     {["foreach([", sep_keys(KeyNum), "] in ",
       ?a2l(case Args of
                [Arg] -> Arg;
-               _     -> orddict:fetch(lists:sort(Args), MKeys)
+               _ -> orddict:fetch(lists:sort(Args), SState#sstate.multi_keys)
            end),
       ")\n",
       {indent, outdent,
        [{align, ["printf(", sep([{op,PrintfFormat} | ArgSpec], ", "), ")"]}]}],
      State};
 st_body({printf, Format, Args}, State) ->
-    {["printf(", sep_t(op, [Format | Args], ", "), ")"], State}.
+    {["printf(", sep_t(op, [Format | Args], ", "), ")"], State};
+st_body(_, _) ->
+    false.
 
-stat_body({Type, Name, Keys, Value}, State = #state{stats = Stats,
-                                                    multi_keys = MKeys}) ->
-    MVs = get_multi_vals(Name, MKeys),
+stat_body({Type, Name, Keys, Value}, State = #gen_state{stats = Stats,
+                                                    st = SState}) ->
+    MVs = get_multi_vals(Name, SState#sstate.multi_keys),
     {[?a2l(Name), "[", sep_t(op, Keys, ", "), "] <<< ", {op, Value} |
       [["\n", {st, {set, MV, Keys}}] || MV <- MVs]],
-     State#state{stats = orddict:store(Name, {Type, length(Keys)}, Stats)}}.
+     State#gen_state{stats = orddict:store(Name, {Type, length(Keys)}, Stats)}}.
 
 get_multi_vals(StatName, MKeys) ->
     orddict:fold(fun(MK, MV, MVAcc) ->
@@ -187,46 +175,15 @@ printa_args_spec(Format, Items, KeyNum) ->
 sep_keys(KeyNum) ->
     sep([["key", ?i2l(KN)] || KN <- lists:seq(1, KeyNum)], ",").
 
-op(Item, State) ->
-    {op(Item), State}.
-
-op({'&&', Ops}) ->
-    ["(", sep_t(op, Ops, ") && ("), ")"];
-op({'||', Ops}) ->
-    ["(", sep_t(op, Ops, ") || ("), ")"];
-op({'==', Op1, Op2}) ->
-    [{op,Op1}, " == ", {op,Op2}];
-op({'<', Op1, Op2}) ->
-    [{op,Op1}, " < ", {op,Op2}];
-op({'>', Op1, Op2}) ->
-    [{op,Op1}, " > ", {op,Op2}];
-op({'=<', Op1, Op2}) ->
-    [{op,Op1}, " <= ", {op,Op2}];
-op({'>=', Op1, Op2}) ->
-    [{op,Op1}, " >= ", {op,Op2}];
-op({arg_str, N}) when is_integer(N), N > 0 ->
-    ["user_string($arg",?i2l(N),")"];
-op({arg, N}) when is_integer(N), N > 0 ->
-    ["$arg",?i2l(N)];
-%% op({Func,List}) when is_atom(Func), is_list(List) ->
-%%     [?a2l(Func), "(", sep_ops(List, ", "), ")"];
-%% op({pid_pred, PidStr}) ->
-%%     ["pid() == ", PidStr];
-op(Pid) when is_pid(Pid) ->
-    ["\"", ?p2l(Pid), "\""];
-op(Str) when is_integer(hd(Str)) ->
-    io_lib:format("~p", [Str]);
-op(Int) when is_integer(Int) ->
-    ?i2l(Int).
-
-nop(Item, State) ->
-    {Item, State}.
-
-indent(Item, State = #state{level = Level}) ->
-    {Item, State#state{level = Level+1}}.
-
-outdent(Item, State = #state{level = Level}) ->
-    {Item, State#state{level = Level-1}}.
-
-align(Item, State) ->
-    {[lists:duplicate(?INDENT * State#state.level, $ ), Item], State}.
+op({arg_str, N}, State) when is_integer(N), N > 0 ->
+    {["user_string($arg",?i2l(N),")"], State};
+op({arg, N}, State) when is_integer(N), N > 0 ->
+    {["$arg",?i2l(N)], State};
+op(Pid, State) when is_pid(Pid) ->
+    {["\"", ?p2l(Pid), "\""], State};
+op(Str, State) when is_integer(hd(Str)) ->
+    {io_lib:format("~p", [Str]), State};
+op(Int, State) when is_integer(Int) ->
+    {?i2l(Int), State};
+op(_, _) ->
+    false.

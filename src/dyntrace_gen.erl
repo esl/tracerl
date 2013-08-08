@@ -27,9 +27,9 @@ process(CbkMod, F, Item, InState) ->
     process(CbkMod, F, nop, Item, InState).
 
 process(CbkMod, PreF, PostF, Item, InState) ->
-    {InChildren, State} = CbkMod:PreF(Item, InState),
+    {InChildren, State} = call(CbkMod, PreF, Item, InState),
     {OutChildren, OutState} = process_list(CbkMod, InChildren, State),
-    CbkMod:PostF(OutChildren, OutState).
+    call(CbkMod, PostF, OutChildren, OutState).
 
 process_list(CbkMod, ItemL, InState) ->
     lists:mapfoldl(fun(L, St) when is_list(L) ->
@@ -41,3 +41,13 @@ process_list(CbkMod, ItemL, InState) ->
                       ({PreF, PostF, Item}, St) ->
                            process(CbkMod, PreF, PostF, Item, St)
                    end, InState, ItemL).
+
+call(CbkMod, F, Item, State) ->
+    Res = case erlang:function_exported(CbkMod, F, 2) of
+              true  -> CbkMod:F(Item, State);
+              false -> false
+          end,
+    case Res of
+        false -> dyntrace_gen_common:F(Item, State);
+        _     -> Res
+    end.
