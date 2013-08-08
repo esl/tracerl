@@ -63,47 +63,46 @@ end_per_suite(_Config) ->
 
 begin_tick_end_test(_Config) ->
     DP = start_trace(begin_tick_end_script()),
-    ?wait_for({line, {start}}),
-    ?wait_for({line, {ticked}}),
-    ?wait_for({line, {ticked}}),
-    ?wait_for({line, {ticked}}),
+    ?wait_for({line, ["start"]}),
+    ?wait_for({line, ["ticked"]}),
+    ?wait_for({line, ["ticked"]}),
+    ?wait_for({line, ["ticked"]}),
     dyntrace_process:stop(DP),
     ?wait_for(eof),
-    ?expect({line, {finish}}).
+    ?expect({line, ["finish"]}).
 
 variable_test(_Config) ->
     Messages = ["aa", "bbbb"],
     {Receiver, Ref} = spawn_monitor(fun() -> receive_all(Messages) end),
     Sender = spawn(fun() -> send_all(Messages) end),
     DP = start_trace(variable_script(Sender)),
-    ?wait_for({line, {start}}),
+    ?wait_for({line, ["start"]}),
     Sender ! {start, Receiver},
     receive {'DOWN', Ref, process, Receiver, normal} -> ok end,
-    {SenderStr, ReceiverStr} = {?p2l(Sender), ?p2l(Receiver)},
-    Sizes = [?msize(M) || M <- Messages],
-    [Size1Str, Size2Str] = [?i2l(S) || S <- Sizes],
-    TotalSizeStr = ?i2l(lists:sum(Sizes)),
-    ?wait_for({line, {sent, SenderStr, ReceiverStr, Size1Str}}),
-    ?wait_for({line, {sent, SenderStr, ReceiverStr, Size2Str}}),
+    [Size1, Size2] = [?msize(M) || M <- Messages],
+    TotalSize = Size1 + Size2,
+    ?wait_for({line, ["sent", Sender, Receiver, Size1]}),
+    ?wait_for({line, ["sent", Sender, Receiver, Size2]}),
     dyntrace_process:stop(DP),
     ?wait_for(eof),
-    ?expect({line, {last, SenderStr, ReceiverStr, Size2Str}}),
-    ?expect({line, {total, "num", "2", "size", TotalSizeStr}}).
+    ?expect({line, ["last", Sender, Receiver, Size2]}),
+    ?expect({line, ["total", "num", 2, "size", TotalSize]}),
+    ct:log("~p~n",[self()]).
 
 count_messages_by_sender_test(_Config) ->
     {Receiver, Ref} = spawn_monitor(fun() -> receive_n(1, 30) end),
     Sender1 = spawn(fun() -> send_n(1, 10) end),
     Sender2 = spawn(fun() -> send_n(11, 30) end),
     DP = start_trace(count_messages_by_sender_script([Sender1, Sender2])),
-    ?wait_for({line, {start}}),
+    ?wait_for({line, ["start"]}),
     Sender1 ! {start, Receiver},
     Sender2 ! {start, Receiver},
     receive {'DOWN', Ref, process, Receiver, normal} -> ok end,
     dyntrace_process:stop(DP),
     ?wait_for(eof),
-    {Sender1Str, Sender2Str} = {?p2l(Sender1), ?p2l(Sender2)},
-    ?expect({line, {sent, "10", "from", Sender1Str}}),
-    ?expect({line, {sent, "20", "from", Sender2Str}}).
+    ?expect({line, ["sent", 10, "from", Sender1]}),
+    ?expect({line, ["sent", 20, "from", Sender2]}),
+    ct:log("~p~n",[self()]).
 
 count_messages_by_sender_with_reset_test(_Config) ->
     {Receiver, Ref} = spawn_monitor(fun() -> receive_n(1, 30) end),
@@ -111,18 +110,17 @@ count_messages_by_sender_with_reset_test(_Config) ->
     Sender2 = spawn(fun() -> send_n(6, 20), send_n(21, 30) end),
     DP = start_trace(
            count_messages_by_sender_with_reset_script([Sender1, Sender2])),
-    ?wait_for({line, {start}}),
+    ?wait_for({line, ["start"]}),
     Sender1 ! {start, Receiver},
     Sender2 ! {start, Receiver},
-    {Sender1Str, Sender2Str} = {?p2l(Sender1), ?p2l(Sender2)},
-    ?wait_for({line, {sent, "5", "from", Sender1Str}}),
-    ?wait_for({line, {sent, "15", "from", Sender2Str}}),
+    ?wait_for({line, ["sent", 5, "from", Sender1]}),
+    ?wait_for({line, ["sent", 15, "from", Sender2]}),
     Sender2 ! {start, Receiver},
     receive {'DOWN', Ref, process, Receiver, normal} -> ok end,
-    ?wait_for({line, {sent, "10", "from", Sender2Str}}),
+    ?wait_for({line, ["sent", 10, "from", Sender2]}),
     dyntrace_process:stop(DP),
     ?wait_for(eof),
-    ?expect_not({line, {sent, _, _, _}}).
+    ?expect_not({line, [sent, _, _, _]}).
 
 count_messages_by_sender_and_receiver_test(_Config) ->
     {Receiver1, Ref1} = spawn_monitor(fun() -> receive_n(1, 30) end),
@@ -135,57 +133,53 @@ count_messages_by_sender_and_receiver_test(_Config) ->
                              send_n(36, 40) end),
     DP = start_trace(
            count_messages_by_sender_and_receiver_script([Sender1, Sender2])),
-    ?wait_for({line, {start}}),
+    ?wait_for({line, ["start"]}),
     Sender1 ! {start, Receiver1},
     Sender2 ! {start, Receiver1},
     receive {'DOWN', Ref1, process, Receiver1, normal} -> ok end,
     receive {'DOWN', Ref2, process, Receiver2, normal} -> ok end,
     dyntrace_process:stop(DP),
     ?wait_for(eof),
-    {Sender1Str, Sender2Str} = {?p2l(Sender1), ?p2l(Sender2)},
-    {Receiver1Str, Receiver2Str} = {?p2l(Receiver1), ?p2l(Receiver2)},
-    ?expect({line, {sent, "10", "from", Sender1Str, "to", Receiver1Str}}),
-    ?expect({line, {sent, "1",  "from", Sender1Str, "to", Sender1Str}}),
-    ?expect({line, {sent, "5",  "from", Sender1Str, "to", Receiver2Str}}),
-    ?expect({line, {sent, "20", "from", Sender2Str, "to", Receiver1Str}}),
-    ?expect({line, {sent, "1",  "from", Sender2Str, "to", Sender2Str}}),
-    ?expect({line, {sent, "5",  "from", Sender2Str, "to", Receiver2Str}}).
+    ?expect({line, ["sent", 10, "from", Sender1, "to", Receiver1]}),
+    ?expect({line, ["sent", 1,  "from", Sender1, "to", Sender1]}),
+    ?expect({line, ["sent", 5,  "from", Sender1, "to", Receiver2]}),
+    ?expect({line, ["sent", 20, "from", Sender2, "to", Receiver1]}),
+    ?expect({line, ["sent", 1,  "from", Sender2, "to", Sender2]}),
+    ?expect({line, ["sent", 5,  "from", Sender2, "to", Receiver2]}).
 
 count_messages_up_down_test(_Config) ->
-    Ps = ring_start(4),
+    [A, B, C, D] = Ps = ring_start(4),
     DP = start_trace(count_messages_up_down_script(Ps)),
-    ?wait_for({line, {start}}),
+    ?wait_for({line, ["start"]}),
     Ref1 = ring_send(Ps, 10, self()),
     Ref2 = ring_send(lists:reverse(Ps), 5, self()),
     receive {finished, Ref1} -> ok end,
     receive {finished, Ref2} -> ok end,
     dyntrace_process:stop(DP),
     ring_stop(Ps),
-    [A, B, C, D] = [?p2l(P) || P <- Ps],
     ?wait_for(eof),
-    ?expect({line, {sent, "up", "10", "down", "5", "from", A, "to", B}}),
-    ?expect({line, {sent, "up", "10", "down", "5", "from", B, "to", C}}),
-    ?expect({line, {sent, "up", "10", "down", "5", "from", C, "to", D}}),
-    ?expect({line, {sent, "up", "5", "down", "10", "from", A, "to", D}}).
+    ?expect({line, ["sent", "up", 10, "down", 5, "from", A, "to", B]}),
+    ?expect({line, ["sent", "up", 10, "down", 5, "from", B, "to", C]}),
+    ?expect({line, ["sent", "up", 10, "down", 5, "from", C, "to", D]}),
+    ?expect({line, ["sent", "up", 5, "down", 10, "from", A, "to", D]}).
 
 sender_and_receiver_set_test(_Config) ->
-    Ps = ring_start(3),
+    [A, B, C] = Ps = ring_start(3),
     DP = start_trace(sender_and_receiver_set_script(Ps)),
-    ?wait_for({line, {start}}),
+    ?wait_for({line, ["start"]}),
     Ref1 = ring_send(Ps, 1, self()),
     Ref2 = ring_send(tl(Ps), 1, self()),
     receive {finished, Ref1} -> ok end,
     receive {finished, Ref2} -> ok end,
     dyntrace_process:stop(DP),
     ring_stop(Ps),
-    [A, B, C] = [?p2l(P) || P <- Ps],
     ?wait_for(eof),
-    ?expect({line, {sent, "from", A, "to", B}}),
-    ?expect({line, {sent, "from", B, "to", C}}),
-    ?expect({line, {sent, "from", C, "to", A}}),
-    ?expect({line, {sent, "from", C, "to", B}}),
-    ?expect_not({line, {sent, "from", B, "to", A}}),
-    ?expect_not({line, {sent, "from", A, "to", C}}).
+    ?expect({line, ["sent", "from", A, "to", B]}),
+    ?expect({line, ["sent", "from", B, "to", C]}),
+    ?expect({line, ["sent", "from", C, "to", A]}),
+    ?expect({line, ["sent", "from", C, "to", B]}),
+    ?expect_not({line, ["sent", "from", B, "to", A]}),
+    ?expect_not({line, ["sent", "from", A, "to", C]}).
 
 message_receive_stats_test(_Config) ->
     Messages = ["1", "222", "33333333", "44444", "55"],
@@ -203,27 +197,22 @@ message_receive_stats_test(_Config) ->
                             send_all(tl(Messages1))
                     end),
     DP = start_trace(message_receive_stats_script([Receiver1, Receiver2])),
-    ?wait_for({line, {start}}),
+    ?wait_for({line, ["start"]}),
     Sender1 ! {start, Receiver1},
     Sender2 ! {start, Receiver2},
     receive {'DOWN', Ref1, process, Receiver1, normal} -> ok end,
     receive {'DOWN', Ref2, process, Receiver2, normal} -> ok end,
     dyntrace_process:stop(DP),
     ?wait_for(eof),
-    {Receiver1Str, Receiver2Str} = {?p2l(Receiver1), ?p2l(Receiver2)},
     [S1, S2, S3, S4, S5] = [?msize(M) || M <- Messages],
-    {Min1, Avg1, Max1, Total1} =
-        {?i2l(S1), ?i2l((S1+S2+S3) div 3), ?i2l(S3), ?i2l(S1+S2+S3)},
-    {Min2, Avg2, Max2, Total2} =
-        {?i2l(S5), ?i2l((S5+S4) div 2), ?i2l(S4), ?i2l(S4+S5)},
-    %ct:log("~p~n~p~n", [{Min1, Avg1, Max1, Total1},
-    %                    {Min2, Avg2, Max2, Total2}]),
-    ?expect({line, {pid, Receiver1Str, "received", "3", "messages:",
+    {Min1, Avg1, Max1, Total1} = {S1, (S1+S2+S3) div 3, S3, S1+S2+S3},
+    {Min2, Avg2, Max2, Total2} = {S5, (S5+S4) div 2, S4, S4+S5},
+    ?expect({line, ["pid", Receiver1, "received", 3, "messages:",
                     "min", Min1, "avg", Avg1,
-                    "max", Max1, "total", Total1}}),
-    ?expect({line, {pid, Receiver2Str, "received", "2", "messages:",
+                    "max", Max1, "total", Total1]}),
+    ?expect({line, ["pid", Receiver2, "received", 2, "messages:",
                     "min", Min2, "avg", Avg2,
-                    "max", Max2, "total", Total2}}).
+                    "max", Max2, "total", Total2]}).
 
 %%%-------------------------------------------------------------------
 %%% Test helpers
@@ -265,8 +254,15 @@ collect(Dest, Output) ->
     end.
 
 termify_line(L) ->
-    [H|T] = re:split(L, " ", [{return,list}]),
-    list_to_tuple([list_to_atom(H)|T]).
+    [termify_token(Token) || Token <- re:split(L, " ", [{return,list}])].
+
+termify_token(L) ->
+    try list_to_integer(L)
+    catch error:badarg ->
+            try list_to_pid(L)
+            catch error:badarg -> L
+            end
+    end.
 
 ring_start(ProcNum) ->
     lists:sort([spawn(fun ring_proc/0) || _ <- lists:seq(1, ProcNum)]).
