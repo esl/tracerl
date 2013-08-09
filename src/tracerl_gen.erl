@@ -6,7 +6,7 @@
 %%% @end
 %%% Created : 26 Jul 2013 by pawel.chrzaszcz@erlang-solutions.com
 %%%-------------------------------------------------------------------
--module(dyntrace_gen).
+-module(tracerl_gen).
 
 -export([script/2, script/3]).
 
@@ -48,6 +48,6 @@ call(CbkMod, F, Item, State) ->
               false -> false
           end,
     case Res of
-        false -> dyntrace_gen_common:F(Item, State);
+        false -> tracerl_gen_common:F(Item, State);
         _     -> Res
     end.

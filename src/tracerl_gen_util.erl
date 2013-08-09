@@ -6,7 +6,7 @@
 %%% @end
 %%% Created : 26 Jul 2013 by pawel.chrzaszcz@erlang-solutions.com
 %%%-------------------------------------------------------------------
--module(dyntrace_gen_util).
+-module(tracerl_gen_util).
 
 -compile(export_all).
 

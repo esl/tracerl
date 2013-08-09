@@ -6,11 +6,11 @@
 %%% @end
 %%% Created : 3 Jul 2013 by pawel.chrzaszcz@erlang-solutions.com
 %%%-------------------------------------------------------------------
--module(dyntrace_gen_systemtap).
+-module(tracerl_gen_systemtap).
 
--include("dyntrace_util.hrl").
+-include("tracerl_util.hrl").
 
--import(dyntrace_gen_util, [sep/2, sep_t/3, tag/2, sep_f/3]).
+-import(tracerl_gen_util, [sep/2, sep_t/3, tag/2, sep_f/3]).
 
 -compile(export_all).
 
@@ -22,13 +22,13 @@
 %% API
 %%-----------------------------------------------------------------------------
 script(ScriptSrc) ->
-    dyntrace_gen:script(?MODULE, ScriptSrc).
+    tracerl_gen:script(?MODULE, ScriptSrc).
 
 script(ScriptSrc, NodeOrPidStr) ->
-    dyntrace_gen:script(?MODULE, ScriptSrc, NodeOrPidStr).
+    tracerl_gen:script(?MODULE, ScriptSrc, NodeOrPidStr).
 
 %%-----------------------------------------------------------------------------
-%% dyntrace_gen callbacks - pass 1: preprocess
+%% tracerl_gen callbacks - pass 1: preprocess
 %%-----------------------------------------------------------------------------
 pre_st({printa, _Format, Args}, State) when length(Args) =< 1 ->
     {[], State};
@@ -42,7 +42,7 @@ pre_st(_, _) ->
     false.
 
 %%-----------------------------------------------------------------------------
-%% dyntrace_gen callbacks - pass 2: generate
+%% tracerl_gen callbacks - pass 2: generate
 %%-----------------------------------------------------------------------------
 generate(Probes, State) ->
     {[{nop, add_globals, [sep_t(probe, Probes, "\n")]}], State}.

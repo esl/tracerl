@@ -6,14 +6,14 @@
 %%% @end
 %%% Created : 4 Jul 2013 by pawel.chrzaszcz@erlang-solutions.com
 %%%-------------------------------------------------------------------
--module(dyntrace_util).
+-module(tracerl_util).
 
 -export([trace/2, start_trace/2, start_trace/3, quit/1]).
 
--define(dyntrace_gen(Node),
+-define(tracerl_gen(Node),
         (case rpc:call(Node, erlang, system_info, [dynamic_trace]) of
-             dtrace    -> dyntrace_gen_dtrace;
-             systemtap -> dyntrace_gen_systemtap
+             dtrace    -> tracerl_gen_dtrace;
+             systemtap -> tracerl_gen_systemtap
          end)).
 
 trace(Script, Action) ->
@@ -44,15 +44,15 @@ start_trace(ScriptSrc, PortArgs, Node) ->
     Pid = spawn(Node, timer, sleep, [infinity]),
     PidStr = rpc:call(Node, erlang, pid_to_list, [Pid]),
     Termination = termination_probe(PidStr),
-    Script = ?dyntrace_gen(Node):script([Termination|ScriptSrc], Node),
+    Script = ?tracerl_gen(Node):script([Termination|ScriptSrc], Node),
     {A, B, C} = now(),
-    SrcFile = lists:flatten(io_lib:format("dyntrace-script-~p-~p.~p.~p",
+    SrcFile = lists:flatten(io_lib:format("tracerl-script-~p-~p.~p.~p",
                                           [node(), A, B, C])),
     ok = file:write_file(SrcFile, Script),
-    Args = case ?dyntrace_gen(Node) of
-               dyntrace_gen_dtrace ->
+    Args = case ?tracerl_gen(Node) of
+               tracerl_gen_dtrace ->
                    [os:find_executable(dtrace), "-q", "-s", SrcFile];
-               dyntrace_gen_systemtap ->
+               tracerl_gen_systemtap ->
                    [os:find_executable(stap), SrcFile]
            end,
     Port = open_port({spawn_executable, Sudo}, [{args, Args} | PortArgs]),

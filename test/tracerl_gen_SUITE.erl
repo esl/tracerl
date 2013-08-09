@@ -6,7 +6,7 @@
 %%% @end
 %%% Created : 16 Jul 2013 by pawel.chrzaszcz@erlang-solutions.com
 %%%-------------------------------------------------------------------
--module(dyntrace_gen_SUITE).
+-module(tracerl_gen_SUITE).
 
 -include_lib("test_server/include/test_server.hrl").
 
@@ -68,7 +68,7 @@ begin_tick_end_test(_Config) ->
     ?wait_for({line, ["ticked"]}),
     ?wait_for({line, ["ticked"]}),
     ?wait_for({line, ["ticked"]}),
-    dyntrace_process:stop(DP),
+    tracerl_process:stop(DP),
     ?wait_for(eof),
     ?expect({line, ["finish"]}).
 
@@ -84,7 +84,7 @@ variable_test(_Config) ->
     TotalSize = Size1 + Size2,
     ?wait_for({line, ["sent", Sender, Receiver, Size1]}),
     ?wait_for({line, ["sent", Sender, Receiver, Size2]}),
-    dyntrace_process:stop(DP),
+    tracerl_process:stop(DP),
     ?wait_for(eof),
     ?expect({line, ["last", Sender, Receiver, Size2]}),
     ?expect({line, ["total", "num", 2, "size", TotalSize]}).
@@ -97,7 +97,7 @@ associative_array_test(_Config) ->
     ?wait_for({line, ["start"]}),
     Sender ! {start, Receiver},
     receive {'DOWN', Ref, process, Receiver, normal} -> ok end,
-    dyntrace_process:stop(DP),
+    tracerl_process:stop(DP),
     ?wait_for(eof),
     TotalSize = lists:sum([?msize(M) || M <- Messages]),
     ?expect({line, ["total", "num", 2, "size", TotalSize]}).
@@ -111,7 +111,7 @@ count_messages_by_sender_test(_Config) ->
     Sender1 ! {start, Receiver},
     Sender2 ! {start, Receiver},
     receive {'DOWN', Ref, process, Receiver, normal} -> ok end,
-    dyntrace_process:stop(DP),
+    tracerl_process:stop(DP),
     ?wait_for(eof),
     ?expect({line, ["sent", 10, "from", Sender1]}),
     ?expect({line, ["sent", 20, "from", Sender2]}).
@@ -130,7 +130,7 @@ count_messages_by_sender_with_reset_test(_Config) ->
     Sender2 ! {start, Receiver},
     receive {'DOWN', Ref, process, Receiver, normal} -> ok end,
     ?wait_for({line, ["sent", 10, "from", Sender2]}),
-    dyntrace_process:stop(DP),
+    tracerl_process:stop(DP),
     ?wait_for(eof),
     ?expect_not({line, [sent, _, _, _]}).
 
@@ -150,7 +150,7 @@ count_messages_by_sender_and_receiver_test(_Config) ->
     Sender2 ! {start, Receiver1},
     receive {'DOWN', Ref1, process, Receiver1, normal} -> ok end,
     receive {'DOWN', Ref2, process, Receiver2, normal} -> ok end,
-    dyntrace_process:stop(DP),
+    tracerl_process:stop(DP),
     ?wait_for(eof),
     ?expect({line, ["sent", 10, "from", Sender1, "to", Receiver1]}),
     ?expect({line, ["sent", 1,  "from", Sender1, "to", Sender1]}),
@@ -167,7 +167,7 @@ count_messages_up_down_test(_Config) ->
     Ref2 = ring_send(lists:reverse(Ps), 5, self()),
     receive {finished, Ref1} -> ok end,
     receive {finished, Ref2} -> ok end,
-    dyntrace_process:stop(DP),
+    tracerl_process:stop(DP),
     ring_stop(Ps),
     ?wait_for(eof),
     ?expect({line, ["sent", "up", 10, "down", 5, "from", A, "to", B]}),
@@ -183,7 +183,7 @@ sender_and_receiver_set_test(_Config) ->
     Ref2 = ring_send(tl(Ps), 1, self()),
     receive {finished, Ref1} -> ok end,
     receive {finished, Ref2} -> ok end,
-    dyntrace_process:stop(DP),
+    tracerl_process:stop(DP),
     ring_stop(Ps),
     ?wait_for(eof),
     ?expect({line, ["sent", "from", A, "to", B]}),
@@ -214,7 +214,7 @@ message_receive_stats_test(_Config) ->
     Sender2 ! {start, Receiver2},
     receive {'DOWN', Ref1, process, Receiver1, normal} -> ok end,
     receive {'DOWN', Ref2, process, Receiver2, normal} -> ok end,
-    dyntrace_process:stop(DP),
+    tracerl_process:stop(DP),
     ?wait_for(eof),
     [S1, S2, S3, S4, S5] = [?msize(M) || M <- Messages],
     {Min1, Avg1, Max1, Total1} = {S1, (S1+S2+S3) div 3, S3, S1+S2+S3},
@@ -246,7 +246,7 @@ receive_all(Messages) ->
 start_trace(ScriptSrc) ->
     Self = self(),
     Collector = spawn(fun() -> collect(Self, []) end),
-    {ok, DP} = dyntrace_process:start_link(ScriptSrc, node(),
+    {ok, DP} = tracerl_process:start_link(ScriptSrc, node(),
                                            fun(Msg) -> Collector ! Msg end),
     ct:log(gen_server:call(DP, get_script)),
     DP.

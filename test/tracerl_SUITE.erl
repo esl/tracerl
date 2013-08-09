@@ -9,7 +9,7 @@
 %%% @end
 %%% Created : 4 Jul 2013 by pawel.chrzaszcz@erlang-solutions.com
 %%%-------------------------------------------------------------------
--module(dyntrace_SUITE).
+-module(tracerl_SUITE).
 -include_lib("test_server/include/test_server.hrl").
 
 -compile(export_all).
@@ -70,7 +70,7 @@ end_per_testcase(_Case, _Config) ->
 %%%-------------------------------------------------------------------
 
 process_spawn_exit_test(_Config) ->
-    {Pid, Output} = dyntrace_util:trace(process_spawn_exit_script(),
+    {Pid, Output} = tracerl_util:trace(process_spawn_exit_script(),
                                         fun process_spawn_exit_scenario/0),
     TermOutput = [termify_line(L) || L <- Output],
     PidStr = ?p2l(Pid),
@@ -81,14 +81,14 @@ process_spawn_exit_test(_Config) ->
     ok.
 
 process_scheduling_test(_Config) ->
-    {Pid, Output} = dyntrace_util:trace(process_scheduling_script(),
+    {Pid, Output} = tracerl_util:trace(process_scheduling_script(),
                                         fun process_scheduling_scenario/0),
     TermOutput = [termify_line(L) || L <- Output],
     PidStr = ?p2l(Pid),
     FiltOutput = [L || L <- TermOutput, element(2, L) =:= PidStr],
     ct:log("trace output:~n~p~n", [FiltOutput]),
     [{schedule, PidStr},
-     {hibernate, PidStr, "dyntrace_SUITE:process_scheduling_f/0"},
+     {hibernate, PidStr, "tracerl_SUITE:process_scheduling_f/0"},
      {unschedule, PidStr},
      {schedule, PidStr},
      {exit, PidStr},
@@ -138,7 +138,7 @@ process_scheduling_f() ->
 
 do_message_test(Config, TestF, CheckF) ->
     {{Sender, Receiver}, Output} =
-        dyntrace_util:trace(message_script(), fun() -> TestF(Config) end),
+        tracerl_util:trace(message_script(), fun() -> TestF(Config) end),
     TermOutput = [termify_line(L) || L <- Output],
     CheckF(Sender, Receiver, TermOutput),
     ok.

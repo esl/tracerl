@@ -6,7 +6,7 @@
 %%% @end
 %%% Created : 11 Jul 2013 by <pawel.chrzaszcz@erlang-solutions.com>
 %%%-------------------------------------------------------------------
--module(dyntrace_process).
+-module(tracerl_process).
 
 -behaviour(gen_server).
 
@@ -58,7 +58,7 @@ stop(Pid) ->
 %%--------------------------------------------------------------------
 init([ScriptSrc, Node, Handler]) ->
     {Port, QuitPid, SrcFile, Script} =
-        dyntrace_util:start_trace(ScriptSrc, Node),
+        tracerl_util:start_trace(ScriptSrc, Node),
     {ok, #state{port = Port, quit_pid = QuitPid,
                 src_file = SrcFile, handler = Handler,
                 script = Script}}.
@@ -94,7 +94,7 @@ handle_call(_Request, _From, State) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_cast(stop, State = #state{quit_pid = QuitPid}) ->
-    dyntrace_util:quit(QuitPid),
+    tracerl_util:quit(QuitPid),
     {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.

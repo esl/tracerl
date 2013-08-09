@@ -6,11 +6,11 @@
 %%% @end
 %%% Created : 8 Aug 2013 by pawel.chrzaszcz@erlang-solutions.com
 %%%-------------------------------------------------------------------
--module(dyntrace_gen_common).
+-module(tracerl_gen_common).
 
--include("dyntrace_util.hrl").
+-include("tracerl_util.hrl").
 
--import(dyntrace_gen_util, [sep/2, sep_t/3, tag/2, sep_f/3]).
+-import(tracerl_gen_util, [sep/2, sep_t/3, tag/2, sep_f/3]).
 
 %% pass 1
 -export([preprocess/2, pre_probe/2, pre_st/2]).
