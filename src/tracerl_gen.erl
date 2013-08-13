@@ -17,10 +17,11 @@ script(CbkMod, ScriptSrc, Node) when is_atom(Node) ->
     PidStr = rpc:call(Node, os, getpid, []),
     script(CbkMod, ScriptSrc, PidStr);
 script(CbkMod, ScriptSrc, PidStr) ->
-    {_, State} =
+    {PreScriptSrc, State} =
         process(CbkMod, preprocess, ScriptSrc, CbkMod:init_state(PidStr)),
+    io:format("~p~n", [PreScriptSrc]),
     {Script, _State} =
-        process(CbkMod, generate, ScriptSrc, State),
+        process(CbkMod, generate, PreScriptSrc, State),
     Script.
 
 process(CbkMod, F, Item, InState) ->
@@ -29,7 +30,7 @@ process(CbkMod, F, Item, InState) ->
 process(CbkMod, PreF, PostF, Item, InState) ->
     {InChildren, State} = call(CbkMod, PreF, Item, InState),
     {OutChildren, OutState} = process_list(CbkMod, InChildren, State),
-    call(CbkMod, PostF, OutChildren, OutState).
+    call(CbkMod, PostF, Item, OutChildren, OutState).
 
 process_list(CbkMod, ItemL, InState) ->
     lists:mapfoldl(fun(L, St) when is_list(L) ->
@@ -49,5 +50,15 @@ call(CbkMod, F, Item, State) ->
           end,
     case Res of
         false -> tracerl_gen_common:F(Item, State);
+        _     -> Res
+    end.
+
+call(CbkMod, F, Item, Children, State) ->
+    Res = case erlang:function_exported(CbkMod, F, 3) of
+              true  -> CbkMod:F(Item, Children, State);
+              false -> false
+          end,
+    case Res of
+        false -> tracerl_gen_common:F(Item, Children, State);
         _     -> Res
     end.

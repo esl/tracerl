@@ -10,7 +10,7 @@
 
 -include("tracerl_util.hrl").
 
--import(tracerl_gen_util, [sep/2, sep_t/3, sep_tt/4, tag/2, sep_f/3,
+-import(tracerl_gen_util, [sep/2, sep_t/3, sep_t/4, tag/2, tag/3, sep_f/3,
                            insert_args/2]).
 
 -compile(export_all).
@@ -46,7 +46,7 @@ pre_st(_, _) ->
 %% tracerl_gen callbacks - pass 2: generate
 %%-----------------------------------------------------------------------------
 generate(Probes, State) ->
-    {[{nop, add_globals, [sep_tt(probe, after_probe, Probes, "\n")]}], State}.
+    {[{nop, add_globals, [sep_t(probe, after_probe, Probes, "\n")]}], State}.
 
 init_state(PidStr) when is_list(PidStr) ->
     Name = os:cmd(io_lib:format(
@@ -56,9 +56,9 @@ init_state(PidStr) when is_list(PidStr) ->
                      pid = PidStr},
     #gen_state{st = SState}.
 
-add_globals(Script, State = #gen_state{stats = [], vars = []}) ->
+add_globals(_Item, Script, State = #gen_state{stats = [], vars = []}) ->
     {Script, State};
-add_globals(Script, State = #gen_state{stats = Stats, vars = Vars}) ->
+add_globals(_Item, Script, State = #gen_state{stats = Stats, vars = Vars}) ->
     {["global ", sep_f(orddict:fetch_keys(Stats) ++ ordsets:to_list(Vars),
                        ", ", fun atom_to_list/1),
       "\n" | Script],
@@ -68,23 +68,23 @@ probe({probe, Point, Statements}, State) when not is_list(Point) ->
     {[{probe_point, Point}, " ", {st, {group, Statements}}, "\n"], State};
 probe({probe, Point, Predicate, Statements}, State) when not is_list(Point) ->
     {[{probe_point, Point},
-      {nop, indent, " {\n"},
-      {align, "if ("}, {op, Predicate}, ") ",
-      {st_body, {group, Statements}},
-      {outdent, "\n}\n"}], State};
+      " {\n",
+      {indent, outdent, [{align, "if ("}, {op, Predicate}, ") ",
+                         {st_body, {group, Statements}}]},
+      "\n}\n"], State};
 probe({probe, Point, Statements}, State = #gen_state{st = SState}) ->
     {[{probe_point, Point},
-      {nop, indent, " {\n"},
-      {align, "if (pid() == "}, SState#sstate.pid, ") ",
-      {st_body, {group, Statements}},
-      {outdent, "\n}\n"}], State};
+      " {\n",
+      {indent, outdent, [{align, "if (pid() == "}, SState#sstate.pid, ") ",
+                         {st_body, {group, Statements}}]},
+      "\n}\n"], State};
 probe({probe, Point, Predicate, Statements}, State = #gen_state{st = SState}) ->
     {[{probe_point, Point},
-      {nop, indent, " {\n"},
-      {align, "if (pid() == "}, SState#sstate.pid,
-      " && (", {op, Predicate}, ")) ",
-      {st_body, {group, Statements}},
-      {outdent, "\n}\n"}], State}.
+      " {\n",
+      {indent, outdent, [{align, "if (pid() == "}, SState#sstate.pid,
+                         " && (", {op, Predicate}, ")) ",
+                         {st_body, {group, Statements}}]},
+      "\n}\n"], State}.
 
 probe_point('begin', State) ->
     {"probe begin", State};
@@ -108,10 +108,9 @@ st_body({Type, Name, Keys, Value}, State)
 st_body({reset, Name}, State) ->
     {["delete ", ?a2l(Name)], State};
 st_body({group, Items}, State) ->
-    {[{nop, indent, "{\n"},
-      sep_t(st, Items, "\n"),
-      {nop, outdent, "\n"}, {align, "}"}],
-     State};
+    {["{\n",
+      {indent, outdent, [sep_t(st, Items, "\n"), "\n"]},
+      {align, "}"}], State};
 st_body(exit, State) ->
     {["exit()"], State};
 st_body({printa, Format, Args}, State = #gen_state{stats = Stats,

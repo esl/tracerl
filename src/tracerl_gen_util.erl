@@ -18,11 +18,14 @@ sep(Args, Sep) ->
 sep_t(Tag, Args, Sep) ->
     sep_f(Args, Sep, fun(Arg) -> {Tag, Arg} end).
 
-sep_tt(BeforeTag, AfterTag, Args, Sep) ->
+sep_t(BeforeTag, AfterTag, Args, Sep) ->
     sep_f(Args, Sep, fun(Arg) -> {BeforeTag, AfterTag, Arg} end).
 
 tag(Tag, Args) ->
     [{Tag, Arg} || Arg <- Args].
+
+tag(PreTag, PostTag, Args) ->
+    [{PreTag, PostTag, Arg} || Arg <- Args].
 
 sep_f([A, B | T], Sep, F) -> [F(A), Sep | sep_f([B|T], Sep, F)];
 sep_f([H], _Sep, F)       -> [F(H)];

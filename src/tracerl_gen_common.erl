@@ -10,25 +10,31 @@
 
 -include("tracerl_util.hrl").
 
--import(tracerl_gen_util, [sep/2, sep_t/3, tag/2, sep_f/3]).
+-import(tracerl_gen_util, [sep/2, sep_t/3, tag/2, tag/3, sep_f/3]).
 
 %% pass 1
--export([preprocess/2, pre_probe/2, pre_st/2]).
+-export([preprocess/2, pre_probe/2, pre_after_probe/3,
+         pre_st/2, pre_after_st/3]).
 
 %% pass 2
--export([after_probe/2, st/2, st_body/2, op/2, nop/2,
-         indent/2, outdent/2, align/2]).
+-export([after_probe/3, st/2, st_body/2, op/2, nop/2, nop/3,
+         indent/2, outdent/3, align/2]).
 
 %%-----------------------------------------------------------------------------
 %% common callbacks for systemtap and dtrace - pass 1: preprocess
 %%-----------------------------------------------------------------------------
 preprocess(Probes, State) ->
-    {tag(pre_probe, Probes), State}.
+    {tag(pre_probe, pre_after_probe, Probes), State}.
 
 pre_probe({probe, Point, _Predicate, Statements}, State) ->
     pre_probe({probe, Point, Statements}, State);
 pre_probe({probe, _Point, Statements}, State) ->
-    {tag(pre_st, Statements), State}.
+    {tag(pre_st, pre_after_st, Statements), State}.
+
+pre_after_probe({probe, Point, Predicate, _}, Children, State) ->
+    {{probe, Point, Predicate, Children}, State};
+pre_after_probe({probe, Point, _}, Children, State) ->
+    {{probe, Point, Children}, State}.
 
 pre_st({?op_assign, Name, _Value}, State) ->
     add_var(Name, State);
@@ -36,6 +42,9 @@ pre_st({?op_assign, Name, _Keys, _Value}, State) ->
     add_var(Name, State);
 pre_st(_, State) ->
     {[], State}.
+
+pre_after_st(Item, _Children, State) ->
+    {Item, State}.
 
 %% helpers
 
@@ -45,8 +54,8 @@ add_var(Name, State = #gen_state{vars = Vars}) ->
 %%-----------------------------------------------------------------------------
 %% common callbacks for systemtap and dtrace - pass 2: generate
 %%-----------------------------------------------------------------------------
-after_probe(Items, State) ->
-    {Items, State#gen_state{args = orddict:new()}}.
+after_probe(_Item, Children, State) ->
+    {Children, State#gen_state{args = orddict:new()}}.
 
 st(Item, State) ->
     {[{align, {st_body, Item}}], State}.
@@ -94,11 +103,14 @@ op({Name, Keys}, State = #gen_state{vars = Vars}) when is_atom(Name) ->
 nop(Item, State) ->
     {Item, State}.
 
+nop(_Item, Children, State) ->
+    {Children, State}.
+
 indent(Item, State = #gen_state{level = Level}) ->
     {Item, State#gen_state{level = Level+1}}.
 
-outdent(Item, State = #gen_state{level = Level}) ->
-    {Item, State#gen_state{level = Level-1}}.
+outdent(_Item, Children, State = #gen_state{level = Level}) ->
+    {Children, State#gen_state{level = Level-1}}.
 
 align(Item, State) ->
     {[lists:duplicate(?INDENT * State#gen_state.level, $ ), Item], State}.

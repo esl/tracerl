@@ -10,7 +10,7 @@
 
 -include("tracerl_util.hrl").
 
--import(tracerl_gen_util, [sep/2, sep_t/3, sep_tt/4, tag/2, sep_f/3,
+-import(tracerl_gen_util, [sep/2, sep_t/3, sep_t/4, tag/2, tag/3, sep_f/3,
                            insert_args/2]).
 
 -compile(export_all).
@@ -34,7 +34,7 @@ script(ScriptSrc, NodeOrPidStr) ->
 %% tracerl_gen callbacks - pass 2: generate
 %%-----------------------------------------------------------------------------
 generate(Probes, State) ->
-    {sep_tt(probe, after_probe, Probes, "\n"), State}.
+    {sep_t(probe, after_probe, Probes, "\n"), State}.
 
 init_state(PidStr) when is_list(PidStr) ->
     #gen_state{st = #dstate{pid = PidStr}}.
@@ -67,10 +67,9 @@ st_body({Type, Name, Keys, Value}, State)
 st_body({reset, Name}, State) ->
     {["trunc(@", ?a2l(Name), ")"], State};
 st_body({group, Items}, State) ->
-    {[{nop, indent, "{\n"},
-      sep_t(st, Items, ";\n"),
-      {nop, outdent, ";\n"}, {align, "}"}],
-     State};
+    {["{\n",
+      {indent, outdent, [sep_t(st, Items, ";\n"), ";\n"]},
+      {align, "}"}], State};
 st_body(exit, State) ->
     {["exit(0)"], State};
 st_body({printa, Format, Args}, State = #gen_state{stats = Stats}) ->
