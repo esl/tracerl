@@ -8,33 +8,31 @@
 %%%-------------------------------------------------------------------
 -module(tracerl_gen_SUITE).
 
+-include("tracerl_test.hrl").
+-include("tracerl_util.hrl").
 -include_lib("test_server/include/test_server.hrl").
 
 -compile(export_all).
 
--define(msg, "message").
--define(msize(Msg), erts_debug:flat_size(Msg)).
--define(p2l(P), pid_to_list(P)).
--define(i2l(I), integer_to_list(I)).
+-import(tracerl_test_util,
+        [all_if_dyntrace/1, start_trace/1,
+         send_n/2, receive_n/2, send_all/1, receive_all/1,
+         ring_start/1, ring_stop/1, ring_send/3]).
 
 suite() ->
     [{timetrap, {minutes, 1}}].
 
 all() ->
-    case erlang:system_info(dynamic_trace) of
-        none ->
-            {skip, "No dynamic trace in this run-time system"};
-        _ ->
-            [begin_tick_end_test,
-             variable_test,
-             associative_array_test,
-             count_messages_by_sender_test,
-             count_messages_by_sender_with_reset_test,
-             count_messages_by_sender_and_receiver_test,
-             count_messages_up_down_test,
-             sender_and_receiver_set_test,
-             message_receive_stats_test]
-    end.
+    all_if_dyntrace(
+      [begin_tick_end_test,
+       variable_test,
+       associative_array_test,
+       count_messages_by_sender_test,
+       count_messages_by_sender_with_reset_test,
+       count_messages_by_sender_and_receiver_test,
+       count_messages_up_down_test,
+       sender_and_receiver_set_test,
+       message_receive_stats_test]).
 
 init_per_suite(Config) ->
     Config.
@@ -45,23 +43,6 @@ end_per_suite(_Config) ->
 %%%-------------------------------------------------------------------
 %%% Test cases
 %%%-------------------------------------------------------------------
--define(wait_for(Pattern, Timeout),
-        receive
-            Pattern ->
-                ok
-        after Timeout ->
-                erlang:error(not_found)
-        end).
--define(expect(Pattern), ?wait_for(Pattern, 0)).
--define(wait_for(Pattern), ?wait_for(Pattern, 10000)).
--define(expect_not(Pattern),
-        receive
-            Pattern ->
-                erlang:error(found_unexpected)
-        after 0 ->
-                ok
-        end).
-
 begin_tick_end_test(_Config) ->
     DP = start_trace(begin_tick_end_script()),
     ?wait_for({line, ["start"]}),
@@ -227,85 +208,6 @@ message_receive_stats_test(_Config) ->
                     "max", Max2, "total", Total2]}).
 
 %%%-------------------------------------------------------------------
-%%% Test helpers
-%%%-------------------------------------------------------------------
-
-send_n(StartNo, EndNo) ->
-    send_all(lists:seq(StartNo, EndNo)).
-
-receive_n(StartNo, EndNo) ->
-    receive_all(lists:seq(StartNo, EndNo)).
-
-send_all(Messages) ->
-    receive {start, Receiver} -> ok end,
-    [Receiver ! Msg || Msg <- Messages].
-
-receive_all(Messages) ->
-    [receive Msg -> ok end || Msg <- Messages].
-
-start_trace(ScriptSrc) ->
-    Self = self(),
-    Collector = spawn(fun() -> collect(Self, []) end),
-    {ok, DP} = tracerl_process:start_link(ScriptSrc, node(),
-                                           fun(Msg) -> Collector ! Msg end),
-    ct:log(gen_server:call(DP, get_script)),
-    DP.
-
-collect(Dest, Output) ->
-    receive
-        {line, "DEBUG " ++ _ = L} ->
-            TermL = termify_line(L),
-            collect(Dest, [TermL|Output]);
-        {line, L} ->
-            TermL = termify_line(L),
-            Dest ! {line, TermL},
-            collect(Dest, [TermL|Output]);
-        eof ->
-            ct:log("trace output:~n~p~n", [lists:reverse(Output)]),
-            Dest ! eof
-    end.
-
-termify_line(L) ->
-    [termify_token(Token) || Token <- re:split(L, " ", [{return,list}])].
-
-termify_token(L) ->
-    try list_to_integer(L)
-    catch error:badarg ->
-            try list_to_pid(L)
-            catch error:badarg -> L
-            end
-    end.
-
-ring_start(ProcNum) ->
-    lists:sort([spawn(fun ring_proc/0) || _ <- lists:seq(1, ProcNum)]).
-
-ring_stop(Ps) ->
-    [P ! stop || P <- Ps].
-
-ring_proc() ->
-    receive
-        [Ps|Rest] when is_list(Ps) ->
-            [P ! Rest || P <- Ps],
-            ring_proc();
-        [{notify, Pid, Ref}] ->
-            Pid ! {finished, Ref},
-            ring_proc();
-        [Next|Rest] ->
-            Next ! Rest,
-            ring_proc();
-        [] ->
-            ring_proc();
-        stop ->
-            ok
-    end.
-
-ring_send(Ps, MsgNum, Pid) ->
-    Ref = make_ref(),
-    lists:last(Ps) ! lists:flatten([lists:duplicate(MsgNum, Ps),
-                                    {notify, Pid, Ref}]),
-    Ref.
-
-%%%-------------------------------------------------------------------
 %%% Dyntrace scripts
 %%%-------------------------------------------------------------------
 
@@ -322,15 +224,15 @@ variable_script(Sender) ->
       [{'=', total_num, 0},
        {'=', total_size, 0},
        {printf, "start\n", []}]},
-     {probe, "message-send", {'==', {arg_str,1}, Sender},
-      [{'=', sender, {arg_str,1}},
-       {'=', receiver, {arg_str,2}},
-       {'=', size, {arg,3}},
+     {probe, "message-send", {'==', sender_pid, Sender},
+      [{'=', sender, sender_pid},
+       {'=', receiver, receiver_pid},
+       {'=', msize, size},
        {'++', total_num},
        {'+=', total_size, size},
-       {printf, "sent %s %s %d\n", [sender, receiver, size]}]},
+       {printf, "sent %s %s %d\n", [sender, receiver, msize]}]},
      {probe, 'end',
-      [{printf, "last %s %s %d\n", [sender, receiver, size]},
+      [{printf, "last %s %s %d\n", [sender, receiver, msize]},
        {printf, "total num %d size %d\n", [total_num, total_size]}]}].
 
 associative_array_script(Sender) ->
@@ -338,81 +240,81 @@ associative_array_script(Sender) ->
       [{'=', total, ["num"], 0},
        {'=', total, ["size"], 0},
        {printf, "start\n", []}]},
-     {probe, "message-send", {'==', {arg_str,1}, Sender},
+     {probe, "message-send", {'==', sender_pid, Sender},
       [{'++', total, ["num"]},
-       {'+=', total, ["size"], {arg,3}},
-       {printf, "DEBUG sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]}]},
+       {'+=', total, ["size"], size},
+       {printf, "DEBUG sent %s %s %d\n", [sender_pid, receiver_pid, size]}]},
      {probe, 'end',
       [{printf, "total num %d size %d\n", [{total, ["num"]},
                                            {total, ["size"]}]}]}].
 
 count_messages_by_sender_script(Senders) ->
-    Predicates = [{'==', {arg_str,1}, Sender} || Sender <- Senders],
+    Predicates = [{'==', sender_pid, Sender} || Sender <- Senders],
     [{probe, 'begin',
       [{printf, "start\n", []}]},
      {probe, "message-send", {'||', Predicates},
-      [{printf, "DEBUG sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
-       {count, msg, [{arg_str,1}]}]},
+      [{printf, "DEBUG sent %s %s %d\n", [sender_pid, receiver_pid, size]},
+       {count, msg, [sender_pid]}]},
      {probe, 'end',
       [{printa, "sent %@d from %s\n", [msg]}]}].
 
 count_messages_by_sender_with_reset_script(Senders) ->
-    Predicates = [{'==', {arg_str,1}, Sender} || Sender <- Senders],
+    Predicates = [{'==', sender_pid, Sender} || Sender <- Senders],
     [{probe, 'begin',
       [{printf, "start\n", []}]},
      {probe, "message-send", {'||', Predicates},
-      [{printf, "DEBUG sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
-       {count, msg, [{arg_str,1}]}]},
+      [{printf, "DEBUG sent %s %s %d\n", [sender_pid, receiver_pid, size]},
+       {count, msg, [sender_pid]}]},
      {probe, {tick, 1},
       [{printa, "sent %@d from %s\n", [msg]},
        {reset, msg}]}].
 
 count_messages_by_sender_and_receiver_script(Senders) ->
-    Predicates = [{'==', {arg_str,1}, Sender} || Sender <- Senders],
+    Predicates = [{'==', sender_pid, Sender} || Sender <- Senders],
     [{probe, 'begin',
       [{printf, "start\n", []}]},
      {probe, "message-send", {'||', Predicates},
-      [{printf, "DEBUG sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
-       {count, msg, [{arg_str,1}, {arg_str,2}]}]},
+      [{printf, "DEBUG sent %s %s %d\n", [sender_pid, receiver_pid, size]},
+       {count, msg, [sender_pid, receiver_pid]}]},
      {probe, 'end',
       [{printa, "sent %@d from %s to %s\n", [msg]}]}].
 
 count_messages_up_down_script(Senders) ->
-    Predicates = [{'==', {arg_str,1}, Sender} || Sender <- Senders],
+    Predicates = [{'==', sender_pid, Sender} || Sender <- Senders],
     [{probe, 'begin',
       [{printf, "start\n", []}]},
      {probe, "message-send", {'&&', [{'||', Predicates},
-                                     {'<', {arg_str,1}, {arg_str,2}}]},
-      [{printf, "DEBUG sent up %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
-       {count, msg_up, [{arg_str,1}, {arg_str,2}]}]},
+                                     {'<', sender_pid, receiver_pid}]},
+      [{printf, "DEBUG sent up %s %s %d\n", [sender_pid, receiver_pid, size]},
+       {count, msg_up, [sender_pid, receiver_pid]}]},
      {probe, "message-send", {'&&', [{'||', Predicates},
-                                     {'>', {arg_str,1}, {arg_str,2}}]},
-      [{printf, "DEBUG sent down %s %s %d\n", [{arg_str,2}, {arg_str,1}, {arg,3}]},
-       {count, msg_down, [{arg_str,2}, {arg_str,1}]}]},
+                                     {'>', sender_pid, receiver_pid}]},
+      [{printf, "DEBUG sent down %s %s %d\n", [sender_pid, receiver_pid, size]},
+       {count, msg_down, [receiver_pid, sender_pid]}]},
      {probe, 'end',
       [{printa, "sent up %@d down %@d from %s to %s\n", [msg_up, msg_down]}]}].
 
 sender_and_receiver_set_script(Senders) ->
-    Predicates = [{'==', {arg_str,1}, Sender} || Sender <- Senders],
+    Predicates = [{'==', sender_pid, Sender} || Sender <- Senders],
     [{probe, 'begin',
       [{printf, "start\n", []}]},
      {probe, "message-send", {'||', Predicates},
-      [{printf, "DEBUG sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]},
-       {set, msg_proc, [{arg_str,1}, {arg_str,2}]}]},
+      [{printf, "DEBUG sent %s %s %d\n", [sender_pid, receiver_pid, size]},
+       {set, msg_proc, [sender_pid, receiver_pid]}]},
      {probe, 'end',
       [{printa, "sent from %s to %s\n", [msg_proc]}]}].
 
 message_receive_stats_script(Receivers) ->
-    Predicates = [{'==', {arg_str,1}, Receiver} || Receiver <- Receivers],
+    Predicates = [{'==', pid, Receiver} || Receiver <- Receivers],
     [{probe, 'begin',
       [{printf, "start\n", []}]},
      {probe, "message-receive", {'||', Predicates},
-      [{printf, "DEBUG received %s %d %d\n", [{arg_str,1}, {arg,2}, {arg,3}]},
-       {count, recv, [{arg_str,1}]},
-       {avg, avg_size, [{arg_str,1}], {arg,2}},
-       {min, min_size, [{arg_str,1}], {arg,2}},
-       {max, max_size, [{arg_str,1}], {arg,2}},
-       {sum, total_size, [{arg_str,1}], {arg,2}}]},
+      [{printf, "DEBUG received %s %d %d\n", [pid, size, queue_length]},
+       {count, recv, [pid]},
+       {avg, avg_size, [pid], size},
+       {min, min_size, [pid], size},
+       {max, max_size, [pid], size},
+       {sum, total_size, [pid], size}]},
      {probe, 'end',
       [{printa, "pid %s received %@d messages: "
         "min %@d avg %@d max %@d total %@d\n",

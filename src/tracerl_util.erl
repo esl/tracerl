@@ -16,9 +16,9 @@
              systemtap -> tracerl_gen_systemtap
          end)).
 
-trace(Script, Action) ->
-    {Port, Pid, SrcFile} =
-        start_trace(Script, [stream, in, stderr_to_stdout, eof], node()),
+trace(ScriptSrc, Action) ->
+    {Port, Pid, SrcFile, _Script} =
+        start_trace(ScriptSrc, [stream, in, stderr_to_stdout, eof], node()),
     receive
         {Port, {data, Sofar}} ->
             Res = Action(),

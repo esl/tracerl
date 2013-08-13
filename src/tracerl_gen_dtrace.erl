@@ -10,7 +10,8 @@
 
 -include("tracerl_util.hrl").
 
--import(tracerl_gen_util, [sep/2, sep_t/3, tag/2, sep_f/3]).
+-import(tracerl_gen_util, [sep/2, sep_t/3, sep_tt/4, tag/2, sep_f/3,
+                           insert_args/2]).
 
 -compile(export_all).
 
@@ -33,7 +34,7 @@ script(ScriptSrc, NodeOrPidStr) ->
 %% tracerl_gen callbacks - pass 2: generate
 %%-----------------------------------------------------------------------------
 generate(Probes, State) ->
-    {sep_t(probe, Probes, "\n"), State}.
+    {sep_tt(probe, after_probe, Probes, "\n"), State}.
 
 init_state(PidStr) when is_list(PidStr) ->
     #gen_state{st = #dstate{pid = PidStr}}.
@@ -53,7 +54,8 @@ probe_point({tick, N}, State) ->
     {["tick-", ?i2l(N), "s"], State};
 probe_point(Function, State = #gen_state{st = DState})
   when is_integer(hd(Function)) ->
-    {["erlang", DState#dstate.pid, ":::", Function], State}.
+    {["erlang", DState#dstate.pid, ":::", Function],
+     insert_args(Function, State)}.
 
 st_body({set, Name, Keys}, State) ->
     stat_body({sum, Name, Keys, "0"}, State);

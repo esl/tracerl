@@ -16,7 +16,8 @@
 -export([preprocess/2, pre_probe/2, pre_st/2]).
 
 %% pass 2
--export([st/2, st_body/2, op/2, nop/2, indent/2, outdent/2, align/2]).
+-export([after_probe/2, st/2, st_body/2, op/2, nop/2,
+         indent/2, outdent/2, align/2]).
 
 %%-----------------------------------------------------------------------------
 %% common callbacks for systemtap and dtrace - pass 1: preprocess
@@ -44,6 +45,9 @@ add_var(Name, State = #gen_state{vars = Vars}) ->
 %%-----------------------------------------------------------------------------
 %% common callbacks for systemtap and dtrace - pass 2: generate
 %%-----------------------------------------------------------------------------
+after_probe(Items, State) ->
+    {Items, State#gen_state{args = orddict:new()}}.
+
 st(Item, State) ->
     {[{align, {st_body, Item}}], State}.
 
@@ -73,9 +77,16 @@ op({Op, Operand}, State) when ?is_logic1(Op); ?is_arith1(Op) ->
     {[?a2l(Op), "(", {op, Operand}, ")"], State};
 op({Op, Operand1, Operand2}, State) when ?is_cmp(Op) ->
     {[{op, Operand1}, " ", ?a2l(Op), " ", {op, Operand2}], State};
-op(Name, State = #gen_state{vars = Vars}) when is_atom(Name) ->
-    true = ordsets:is_element(Name, Vars),
-    {?a2l(Name), State};
+op(Name, State = #gen_state{args = Args, vars = Vars})
+  when is_atom(Name) ->
+    {case orddict:find(Name, Args) of
+         {ok, Arg} ->
+             [{op, Arg}];
+         error ->
+             ct:log("~p ~p ~n", [Name, State]),
+             true = ordsets:is_element(Name, Vars),
+             ?a2l(Name)
+     end, State};
 op({Name, Keys}, State = #gen_state{vars = Vars}) when is_atom(Name) ->
     true = ordsets:is_element(Name, Vars),
     {[?a2l(Name), "[", sep_t(op, Keys, ", "), "]"], State}.

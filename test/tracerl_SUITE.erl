@@ -10,26 +10,27 @@
 %%% Created : 4 Jul 2013 by pawel.chrzaszcz@erlang-solutions.com
 %%%-------------------------------------------------------------------
 -module(tracerl_SUITE).
+
+-include("tracerl_test.hrl").
+-include("tracerl_util.hrl").
 -include_lib("test_server/include/test_server.hrl").
 
 -compile(export_all).
 
+-import(tracerl_test_util, [all_if_dyntrace/1,
+                            start_trace/1,
+                            send_all/1, receive_all/1]).
+
 -define(msg1, "message").
 -define(msg2, "other message").
--define(msize(Msg), integer_to_list(erts_debug:flat_size(Msg))).
--define(p2l(Pid), pid_to_list(Pid)).
 
 suite() ->
     [{timetrap, {minutes, 1}}].
 
 all() ->
-    case erlang:system_info(dynamic_trace) of
-        none ->
-            {skip, "No dynamic trace in this run-time system"};
-        _ ->
-            [{group, local},
-             {group, dist}]
-    end.
+    all_if_dyntrace(
+      [{group, local},
+       {group, dist}]).
 
 groups() ->
     [{local, [],
@@ -70,42 +71,62 @@ end_per_testcase(_Case, _Config) ->
 %%%-------------------------------------------------------------------
 
 process_spawn_exit_test(_Config) ->
-    {Pid, Output} = tracerl_util:trace(process_spawn_exit_script(),
-                                        fun process_spawn_exit_scenario/0),
-    TermOutput = [termify_line(L) || L <- Output],
-    PidStr = ?p2l(Pid),
-    FiltOutput = [L || L <- TermOutput, element(2, L) =:= PidStr],
-    ct:log("trace output:~n~p~n", [FiltOutput]),
-    [{spawn, PidStr, "erlang:apply/2"},
-     {exit, PidStr, "normal"}] = FiltOutput,
+    DP = start_trace(process_spawn_exit_script()),
+    ?wait_for({line, ["start"]}),
+    Pid = process_spawn_exit_scenario(),
+    tracerl_process:stop(DP),
+    ?wait_for({line, ["spawn", Pid, "erlang:apply/2"]}),
+    ?wait_for({line, ["exit", Pid, "normal"]}),
+    ?wait_for(eof),
     ok.
 
 process_scheduling_test(_Config) ->
-    {Pid, Output} = tracerl_util:trace(process_scheduling_script(),
-                                        fun process_scheduling_scenario/0),
-    TermOutput = [termify_line(L) || L <- Output],
-    PidStr = ?p2l(Pid),
-    FiltOutput = [L || L <- TermOutput, element(2, L) =:= PidStr],
-    ct:log("trace output:~n~p~n", [FiltOutput]),
-    [{schedule, PidStr},
-     {hibernate, PidStr, "tracerl_SUITE:process_scheduling_f/0"},
-     {unschedule, PidStr},
-     {schedule, PidStr},
-     {exit, PidStr},
-     {unschedule, PidStr}] = FiltOutput,
+    DP = start_trace(process_scheduling_script()),
+    ?wait_for({line, ["start"]}),
+    Pid = process_scheduling_scenario(),
+    tracerl_process:stop(DP),
+    ?wait_for({line, ["schedule", Pid]}),
+    ?wait_for({line, ["hibernate", Pid,
+                      "tracerl_SUITE:process_scheduling_f/0"]}),
+    ?wait_for({line, ["unschedule", Pid]}),
+    ?wait_for({line, ["schedule", Pid]}),
+    ?wait_for({line, ["exit", Pid]}),
+    ?wait_for({line, ["unschedule", Pid]}),
+    ?wait_for(eof),
     ok.
 
-message_test(Config) ->
-    do_message_test(Config,
-                    fun message_scenario/1, fun check_local_message/3).
+message_test(_Config) ->
+    Sender = spawn(fun() -> send_all([?msg2, ?msg1]) end),
+    {Receiver, Ref} = spawn_monitor(fun() -> receive_all([?msg1]) end),
+    DP = start_trace(message_script(Receiver)),
+    ?wait_for({line, ["start"]}),
+    Sender ! {start, Receiver},
+    receive {'DOWN', Ref, process, Receiver, normal} -> ok end,
+    tracerl_process:stop(DP),
+    check_local_message(Sender, Receiver).
 
-message_self_test(Config) ->
-    do_message_test(Config,
-                    fun message_self_scenario/1, fun check_local_message/3).
+message_self_test(_Config) ->
+    {Pid, Ref} = spawn_monitor(fun() ->
+                                       send_all([?msg2, ?msg1]),
+                                       receive_all([?msg1])
+                               end),
+    DP = start_trace(message_script(Pid)),
+    ?wait_for({line, ["start"]}),
+    Pid ! {start, Pid},
+    receive {'DOWN', Ref, process, Pid, normal} -> ok end,
+    tracerl_process:stop(DP),
+    check_local_message(Pid, Pid).
 
 message_dist_test(Config) ->
-    do_message_test(Config,
-                    fun message_dist_scenario/1, fun check_dist_message/3).
+    {Receiver, Ref} = spawn_monitor(fun() -> receive_all([?msg1]) end),
+    Sender = spawn(?config(slave, Config), slave, relay, [Receiver]),
+    DP = start_trace(message_script(Receiver)),
+    ?wait_for({line, ["start"]}),
+    Sender ! ?msg2,
+    Sender ! ?msg1,
+    receive {'DOWN', Ref, process, Receiver, normal} -> ok end,
+    tracerl_process:stop(DP),
+    check_dist_message(Sender, Receiver).
 
 %%%-------------------------------------------------------------------
 %%% Test helpers
@@ -136,71 +157,20 @@ process_scheduling_f() ->
             ok
     end.
 
-do_message_test(Config, TestF, CheckF) ->
-    {{Sender, Receiver}, Output} =
-        tracerl_util:trace(message_script(), fun() -> TestF(Config) end),
-    TermOutput = [termify_line(L) || L <- Output],
-    CheckF(Sender, Receiver, TermOutput),
-    ok.
+check_local_message(Sender, Receiver) ->
+    {Size1, Size2} = {?msize(?msg1), ?msize(?msg2)},
+    ?wait_for({line, ["sent", Sender, Receiver, Size2]}),
+    ?wait_for({line, ["queued", Receiver, Size2, 1]}),
+    ?wait_for({line, ["sent", Sender, Receiver, Size1]}),
+    ?wait_for({line, ["queued", Receiver, Size1, 2]}),
+    ?wait_for({line, ["received", Receiver, Size1, 1]}),
+    ?wait_for(eof).
 
-message_scenario(_Config) ->
-    {Receiver, Ref} = spawn_monitor(fun() ->
-                                            receive ?msg1 -> ok end
-                                    end),
-    Sender = spawn(fun() ->
-                           Receiver ! ?msg2,
-                           Receiver ! ?msg1
-                   end),
-    receive
-        {'DOWN', Ref, process, Receiver, normal} -> {Sender, Receiver}
-    end.
-
-message_self_scenario(_Config) ->
-    {Receiver, Ref} = spawn_monitor(fun() ->
-                                            self() ! ?msg2,
-                                            self() ! ?msg1,
-                                            receive ?msg1 -> ok end
-                                    end),
-    receive
-        {'DOWN', Ref, process, Receiver, normal} -> {Receiver, Receiver}
-    end.
-
-message_dist_scenario(Config) ->
-    {Receiver, Ref} = spawn_monitor(fun() ->
-                                            receive ?msg1 -> ok end
-                                    end),
-    Sender = spawn(?config(slave, Config), slave, relay, [Receiver]),
-    Sender ! ?msg2,
-    Sender ! ?msg1,
-    receive
-        {'DOWN', Ref, process, Receiver, normal} -> {Sender, Receiver}
-    end.
-
-check_local_message(Sender, Receiver, TermOutput) ->
-    {SenderStr, ReceiverStr} = {?p2l(Sender), ?p2l(Receiver)},
-    {Msg1Size, Msg2Size} = {?msize(?msg1), ?msize(?msg2)},
-    FiltOutput = [L || L <- TermOutput, element(2, L) =:= SenderStr
-                           orelse element(2, L) =:= ReceiverStr],
-    {Msg1Size, Msg2Size} = {?msize(?msg1), ?msize(?msg2)},
-    ct:log("trace output:~n~p~n", [FiltOutput]),
-    [{sent, SenderStr, ReceiverStr, Msg2Size},
-     {queued, ReceiverStr, Msg2Size, "1"},
-     {sent, SenderStr, ReceiverStr, Msg1Size},
-     {queued, ReceiverStr, Msg1Size, "2"},
-     {received, ReceiverStr, Msg1Size, "1"}] = FiltOutput.
-
-check_dist_message(Sender, Receiver, TermOutput) ->
-    {SenderStr, ReceiverStr} = {?p2l(Sender), ?p2l(Receiver)},
-    FiltOutput = [L || L <- TermOutput, element(2, L) =:= SenderStr
-                           orelse element(2, L) =:= ReceiverStr],
-    ct:log("trace output:~n~p~n", [FiltOutput]),
-    [{queued, ReceiverStr, _, "1"},
-     {queued, ReceiverStr, _, "2"},
-     {received, ReceiverStr, _, "1"}] = FiltOutput.
-
-termify_line(L) ->
-    [H|T] = re:split(L, " ", [{return,list}]),
-    list_to_tuple([list_to_atom(H)|T]).
+check_dist_message(_Sender, Receiver) ->
+    ?wait_for({line, ["queued", Receiver, _, 1]}),
+    ?wait_for({line, ["queued", Receiver, _, 2]}),
+    ?wait_for({line, ["received", Receiver, _, 1]}),
+    ?wait_for(eof).
 
 %%%-------------------------------------------------------------------
 %%% Dyntrace scripts
@@ -208,33 +178,33 @@ termify_line(L) ->
 
 process_spawn_exit_script() ->
     [{probe, 'begin',
-      [{printf, "\n", []}]},
+      [{printf, "start\n", []}]},
      {probe, "process-spawn",
-      [{printf, "spawn %s %s\n", [{arg_str,1}, {arg_str,2}]}]},
+      [{printf, "spawn %s %s\n", [pid, mfa]}]},
      {probe, "process-exit",
-      [{printf, "exit %s %s\n", [{arg_str,1}, {arg_str,2}]}]}
+      [{printf, "exit %s %s\n", [pid, reason]}]}
     ].
 
 process_scheduling_script() ->
     [{probe, 'begin',
-      [{printf, "\n", []}]},
+      [{printf, "start\n", []}]},
      {probe, "process-scheduled",
-      [{printf, "schedule %s\n", [{arg_str,1}]}]},
+      [{printf, "schedule %s\n", [pid]}]},
      {probe, "process-unscheduled",
-      [{printf, "unschedule %s\n", [{arg_str,1}]}]},
+      [{printf, "unschedule %s\n", [pid]}]},
      {probe, "process-hibernate",
-      [{printf, "hibernate %s %s\n", [{arg_str,1}, {arg_str,2}]}]},
+      [{printf, "hibernate %s %s\n", [pid, mfa]}]},
      {probe, "process-exit",
-      [{printf, "exit %s\n", [{arg_str,1}]}]}
+      [{printf, "exit %s\n", [pid]}]}
     ].
 
-message_script() ->
+message_script(Receiver) ->
     [{probe, 'begin',
-      [{printf, "\n", []}]},
-     {probe, "message-send",
-      [{printf, "sent %s %s %d\n", [{arg_str,1}, {arg_str,2}, {arg,3}]}]},
-     {probe, "message-queued",
-      [{printf, "queued %s %d %d\n", [{arg_str,1}, {arg,2}, {arg,3}]}]},
-     {probe, "message-receive",
-      [{printf, "received %s %d %d\n", [{arg_str,1}, {arg,2}, {arg,3}]}]}
+      [{printf, "start\n", []}]},
+     {probe, "message-send", {'==', receiver_pid, Receiver},
+      [{printf, "sent %s %s %d\n", [sender_pid, receiver_pid, size]}]},
+     {probe, "message-queued", {'==', pid, Receiver},
+      [{printf, "queued %s %d %d\n", [pid, size, queue_length]}]},
+     {probe, "message-receive", {'==', pid, Receiver},
+      [{printf, "received %s %d %d\n", [pid, size, queue_length]}]}
     ].

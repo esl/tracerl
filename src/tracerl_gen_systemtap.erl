@@ -10,7 +10,8 @@
 
 -include("tracerl_util.hrl").
 
--import(tracerl_gen_util, [sep/2, sep_t/3, tag/2, sep_f/3]).
+-import(tracerl_gen_util, [sep/2, sep_t/3, sep_tt/4, tag/2, sep_f/3,
+                           insert_args/2]).
 
 -compile(export_all).
 
@@ -45,7 +46,7 @@ pre_st(_, _) ->
 %% tracerl_gen callbacks - pass 2: generate
 %%-----------------------------------------------------------------------------
 generate(Probes, State) ->
-    {[{nop, add_globals, [sep_t(probe, Probes, "\n")]}], State}.
+    {[{nop, add_globals, [sep_tt(probe, after_probe, Probes, "\n")]}], State}.
 
 init_state(PidStr) when is_list(PidStr) ->
     Name = os:cmd(io_lib:format(
@@ -94,7 +95,7 @@ probe_point({tick, N}, State) ->
 probe_point(Function, State = #gen_state{st = SState})
   when is_integer(hd(Function)) ->
     {["probe process(\"", SState#sstate.name, "\").mark(\"", Function, "\")"],
-     State}.
+     insert_args(Function, State)}.
 
 st_body({set, Name, Keys}, State = #gen_state{stats = Stats}) ->
     {[?a2l(Name), "[", sep_t(op, Keys, ", "), "] = 1"],

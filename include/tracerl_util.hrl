@@ -9,6 +9,7 @@
 -record(gen_state, {st,
                     vars = ordsets:new(),
                     stats = orddict:new(),
+                    args = orddict:new(),
                     level = 0}).
 
 -define(a2l(A), atom_to_list(A)).
