@@ -8,7 +8,7 @@
 %%%-------------------------------------------------------------------
 -module(tracerl_util).
 
--export([trace/2, start_trace/2, start_trace/3, quit/1]).
+-export([trace/2, start_trace/2, start_trace/3, quit/1, term_handler/1]).
 
 -define(tracerl_gen(Node),
         (case rpc:call(Node, erlang, system_info, [dynamic_trace]) of
@@ -60,6 +60,24 @@ start_trace(ScriptSrc, PortArgs, Node) ->
 
 quit(Pid) ->
     exit(Pid, quit).
+
+term_handler(Handler) ->
+    fun(eof) ->
+            Handler(eof);
+       ({line, ""}) ->
+            ok;
+       ({line, Line}) ->
+            try
+                {ok, Tokens, _} = erl_scan:string(Line),
+                {ok, Term} = erl_parse:parse_term(Tokens),
+                Handler({term, Term})
+            catch
+                error:Reason ->
+                    Handler({error, Reason, Line})
+            end
+    end.
+
+%% Helpers
 
 termination_probe(Pid) ->
     {probe, "process-exit", {'==', {arg_str,1}, Pid},

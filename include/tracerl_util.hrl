@@ -15,6 +15,7 @@
 -define(a2l(A), atom_to_list(A)).
 -define(i2l(I), integer_to_list(I)).
 -define(p2l(P), pid_to_list(P)).
+-define(l2p(L), list_to_pid(L)).
 
 -define(INDENT, 2).
 

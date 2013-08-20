@@ -178,7 +178,7 @@ check_dist_message(_Sender, Receiver) ->
 
 process_spawn_exit_script() ->
     [{probe, 'begin',
-      [{printf, "start\n", []}]},
+      [{printf, "start\n"}]},
      {probe, "process-spawn",
       [{printf, "spawn %s %s\n", [pid, mfa]}]},
      {probe, "process-exit",
@@ -187,7 +187,7 @@ process_spawn_exit_script() ->
 
 process_scheduling_script() ->
     [{probe, 'begin',
-      [{printf, "start\n", []}]},
+      [{printf, "start\n"}]},
      {probe, "process-scheduled",
       [{printf, "schedule %s\n", [pid]}]},
      {probe, "process-unscheduled",
@@ -200,7 +200,7 @@ process_scheduling_script() ->
 
 message_script(Receiver) ->
     [{probe, 'begin',
-      [{printf, "start\n", []}]},
+      [{printf, "start\n"}]},
      {probe, "message-send", {'==', receiver_pid, Receiver},
       [{printf, "sent %s %s %d\n", [sender_pid, receiver_pid, size]}]},
      {probe, "message-queued", {'==', pid, Receiver},

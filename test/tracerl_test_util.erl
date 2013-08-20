@@ -22,7 +22,16 @@ start_trace(ScriptSrc) ->
     Self = self(),
     Collector = spawn(fun() -> collect(Self, []) end),
     {ok, DP} = tracerl_process:start_link(ScriptSrc, node(),
-                                           fun(Msg) -> Collector ! Msg end),
+                                          fun(Msg) -> Collector ! Msg end),
+    ct:log(gen_server:call(DP, get_script)),
+    DP.
+
+start_term_trace(ScriptSrc) ->
+    Self = self(),
+    Collector = spawn(fun() -> collect_terms(Self, []) end),
+    {ok, DP} = tracerl_process:start_link(
+                 ScriptSrc, node(),
+                 tracerl_util:term_handler(fun(Msg) -> Collector ! Msg end)),
     ct:log(gen_server:call(DP, get_script)),
     DP.
 
@@ -35,6 +44,18 @@ collect(Dest, Output) ->
             TermL = termify_line(L),
             Dest ! {line, TermL},
             collect(Dest, [TermL|Output]);
+        eof ->
+            ct:log("trace output:~n~p~n", [lists:reverse(Output)]),
+            Dest ! eof
+    end.
+
+collect_terms(Dest, Output) ->
+    receive
+        {term, {debug, _} = Debug} ->
+            collect_terms(Dest, [Debug|Output]);
+        {term, Term} ->
+            Dest ! {term, Term},
+            collect_terms(Dest, [Term|Output]);
         eof ->
             ct:log("trace output:~n~p~n", [lists:reverse(Output)]),
             Dest ! eof

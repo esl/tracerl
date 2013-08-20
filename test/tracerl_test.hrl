@@ -14,8 +14,17 @@
             Pattern ->
                 ok
         after Timeout ->
-                erlang:error(not_found)
+                Pattern = erlang:error(not_found)
+                % Prevents unbound variables in Pattern from being unsafe
         end).
+
+%% -define(wait_for2(Pattern, Timeout),
+%%         receive
+%%             Pattern ->
+%%                 ok
+%%         after Timeout ->
+%%                 erlang:error(not_found)
+%%         end).
 -define(expect(Pattern), ?wait_for(Pattern, 0)).
 -define(wait_for(Pattern), ?wait_for(Pattern, 10000)).
 -define(expect_not(Pattern),

@@ -15,7 +15,7 @@
 -compile(export_all).
 
 -import(tracerl_test_util,
-        [all_if_dyntrace/1, start_trace/1,
+        [all_if_dyntrace/1, start_trace/1, start_term_trace/1,
          send_n/2, receive_n/2, send_all/1, receive_all/1,
          ring_start/1, ring_stop/1, ring_send/3]).
 
@@ -30,6 +30,7 @@ all() ->
        count_messages_by_sender_test,
        count_messages_by_sender_with_reset_test,
        count_messages_by_sender_and_receiver_test,
+       count_messages_by_sender_and_receiver_term_test,
        count_messages_up_down_test,
        sender_and_receiver_set_test,
        message_receive_stats_test]).
@@ -140,6 +141,32 @@ count_messages_by_sender_and_receiver_test(_Config) ->
     ?expect({line, ["sent", 1,  "from", Sender2, "to", Sender2]}),
     ?expect({line, ["sent", 5,  "from", Sender2, "to", Receiver2]}).
 
+count_messages_by_sender_and_receiver_term_test(_Config) ->
+    {Receiver1, Ref1} = spawn_monitor(fun() -> receive_n(1, 30) end),
+    {Receiver2, Ref2} = spawn_monitor(fun() -> receive_n(31, 40) end),
+    Sender1 = spawn(fun() -> send_n(1, 10),
+                             self() ! {start, Receiver2},
+                             send_n(31, 35) end),
+    Sender2 = spawn(fun() -> send_n(11, 30),
+                             self() ! {start, Receiver2},
+                             send_n(36, 40) end),
+    DP = start_term_trace(
+           count_messages_by_sender_and_receiver_term_script(
+             [Sender1, Sender2])),
+    ?wait_for({term, start}),
+    Sender1 ! {start, Receiver1},
+    Sender2 ! {start, Receiver1},
+    receive {'DOWN', Ref1, process, Receiver1, normal} -> ok end,
+    receive {'DOWN', Ref2, process, Receiver2, normal} -> ok end,
+    tracerl_process:stop(DP),
+    ?wait_for(eof),
+    ?wait_for({term, {sent, [stat|Stat0]}}, 0),
+    Stat = [{?l2p(P1), ?l2p(P2), N} || {P1, P2, N} <- Stat0],
+    true = lists:member({Sender1, Receiver1, 10}, Stat),
+    true = lists:member({Sender1, Receiver2, 5}, Stat),
+    true = lists:member({Sender2, Receiver1, 20}, Stat),
+    true = lists:member({Sender2, Receiver2, 5}, Stat).
+
 count_messages_up_down_test(_Config) ->
     [A, B, C, D] = Ps = ring_start(4),
     DP = start_trace(count_messages_up_down_script(Ps)),
@@ -213,17 +240,17 @@ message_receive_stats_test(_Config) ->
 
 begin_tick_end_script() ->
     [{probe, 'begin',
-      [{printf, "start\n", []}]},
+      [{printf, "start\n"}]},
      {probe, {tick, 1},
-      [{printf, "ticked\n", []}]},
+      [{printf, "ticked\n"}]},
      {probe, 'end',
-      [{printf, "finish\n", []}]}].
+      [{printf, "finish\n"}]}].
 
 variable_script(Sender) ->
     [{probe, 'begin',
       [{'=', total_num, 0},
        {'=', total_size, 0},
-       {printf, "start\n", []}]},
+       {printf, "start\n"}]},
      {probe, "message-send", {'==', sender_pid, Sender},
       [{'=', sender, sender_pid},
        {'=', receiver, receiver_pid},
@@ -239,7 +266,7 @@ associative_array_script(Sender) ->
     [{probe, 'begin',
       [{'=', total, ["num"], 0},
        {'=', total, ["size"], 0},
-       {printf, "start\n", []}]},
+       {printf, "start\n"}]},
      {probe, "message-send", {'==', sender_pid, Sender},
       [{'++', total, ["num"]},
        {'+=', total, ["size"], size},
@@ -251,7 +278,7 @@ associative_array_script(Sender) ->
 count_messages_by_sender_script(Senders) ->
     Predicates = [{'==', sender_pid, Sender} || Sender <- Senders],
     [{probe, 'begin',
-      [{printf, "start\n", []}]},
+      [{printf, "start\n"}]},
      {probe, "message-send", {'||', Predicates},
       [{printf, "DEBUG sent %s %s %d\n", [sender_pid, receiver_pid, size]},
        {count, msg, [sender_pid]}]},
@@ -261,7 +288,7 @@ count_messages_by_sender_script(Senders) ->
 count_messages_by_sender_with_reset_script(Senders) ->
     Predicates = [{'==', sender_pid, Sender} || Sender <- Senders],
     [{probe, 'begin',
-      [{printf, "start\n", []}]},
+      [{printf, "start\n"}]},
      {probe, "message-send", {'||', Predicates},
       [{printf, "DEBUG sent %s %s %d\n", [sender_pid, receiver_pid, size]},
        {count, msg, [sender_pid]}]},
@@ -272,17 +299,30 @@ count_messages_by_sender_with_reset_script(Senders) ->
 count_messages_by_sender_and_receiver_script(Senders) ->
     Predicates = [{'==', sender_pid, Sender} || Sender <- Senders],
     [{probe, 'begin',
-      [{printf, "start\n", []}]},
+      [{printf, "start\n"}]},
      {probe, "message-send", {'||', Predicates},
       [{printf, "DEBUG sent %s %s %d\n", [sender_pid, receiver_pid, size]},
        {count, msg, [sender_pid, receiver_pid]}]},
      {probe, 'end',
       [{printa, "sent %@d from %s to %s\n", [msg]}]}].
 
+count_messages_by_sender_and_receiver_term_script(Senders) ->
+    Predicates = [{'==', sender_pid, Sender} || Sender <- Senders],
+    [{probe, 'begin',
+      [{print_term, start}]},
+     {probe, "message-send", {'||', Predicates},
+      [%{print_term, {debug, sent %s %s %d\n", [sender_pid, receiver_pid, size]},
+       {count, msg, [sender_pid, receiver_pid]}]},
+     {probe, 'end',
+      [{print_term, {sent, '$1'},
+        [{stat, {"%s", "%s", "%@d"}, msg}]}
+      ]}
+    ].
+
 count_messages_up_down_script(Senders) ->
     Predicates = [{'==', sender_pid, Sender} || Sender <- Senders],
     [{probe, 'begin',
-      [{printf, "start\n", []}]},
+      [{printf, "start\n"}]},
      {probe, "message-send", {'&&', [{'||', Predicates},
                                      {'<', sender_pid, receiver_pid}]},
       [{printf, "DEBUG sent up %s %s %d\n", [sender_pid, receiver_pid, size]},
@@ -297,7 +337,7 @@ count_messages_up_down_script(Senders) ->
 sender_and_receiver_set_script(Senders) ->
     Predicates = [{'==', sender_pid, Sender} || Sender <- Senders],
     [{probe, 'begin',
-      [{printf, "start\n", []}]},
+      [{printf, "start\n"}]},
      {probe, "message-send", {'||', Predicates},
       [{printf, "DEBUG sent %s %s %d\n", [sender_pid, receiver_pid, size]},
        {set, msg_proc, [sender_pid, receiver_pid]}]},
@@ -307,7 +347,7 @@ sender_and_receiver_set_script(Senders) ->
 message_receive_stats_script(Receivers) ->
     Predicates = [{'==', pid, Receiver} || Receiver <- Receivers],
     [{probe, 'begin',
-      [{printf, "start\n", []}]},
+      [{printf, "start\n"}]},
      {probe, "message-receive", {'||', Predicates},
       [{printf, "DEBUG received %s %d %d\n", [pid, size, queue_length]},
        {count, recv, [pid]},

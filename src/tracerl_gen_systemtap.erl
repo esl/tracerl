@@ -127,6 +127,8 @@ st_body({printa, Format, Args}, State = #gen_state{stats = Stats,
       {indent, outdent,
        [{align, ["printf(", sep([{op,PrintfFormat} | ArgSpec], ", "), ")"]}]}],
      State};
+st_body({printf, Format}, State) ->
+    st_body({printf, Format, []}, State);
 st_body({printf, Format, Args}, State) ->
     {["printf(", sep_t(op, [Format | Args], ", "), ")"], State};
 st_body(_, _) ->

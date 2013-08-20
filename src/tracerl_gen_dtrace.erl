@@ -75,6 +75,8 @@ st_body(exit, State) ->
 st_body({printa, Format, Args}, State = #gen_state{stats = Stats}) ->
     ArgSpec = [printa_arg_spec(Arg, Stats) || Arg <- Args],
     {["printa(", sep([{op,Format} | ArgSpec], ", "), ")"], State};
+st_body({printf, Format}, State) ->
+    st_body({printf, Format, []}, State);
 st_body({printf, Format, Args}, State) ->
     {["printf(", sep_t(op, [Format | Args], ", "), ")"], State};
 st_body(_, _) ->
