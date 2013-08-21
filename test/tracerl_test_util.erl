@@ -21,19 +21,16 @@ all_if_dyntrace(All) ->
 start_trace(ScriptSrc) ->
     Self = self(),
     Collector = spawn(fun() -> collect(Self, []) end),
-    {ok, DP} = tracerl_process:start_link(ScriptSrc, node(),
-                                          fun(Msg) -> Collector ! Msg end),
-    register(tracerl_process, DP),
+    {ok, DP} = tracerl:start_link(ScriptSrc, node(), Collector,
+                                  [{name, {local, tracerl_process}}]),
     ct:log(gen_server:call(DP, get_script)),
     DP.
 
 start_term_trace(ScriptSrc) ->
     Self = self(),
     Collector = spawn(fun() -> collect_terms(Self, []) end),
-    {ok, DP} = tracerl_process:start_link(
-                 ScriptSrc, node(),
-                 tracerl_util:term_handler(fun(Msg) -> Collector ! Msg end)),
-    register(tracerl_process, DP),
+    {ok, DP} = tracerl:start_link(ScriptSrc, node(), Collector,
+                                  [{name, {local, tracerl_process}}, term]),
     ct:log(gen_server:call(DP, get_script)),
     DP.
 
