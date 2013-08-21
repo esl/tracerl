@@ -29,14 +29,14 @@ preprocess(Probes, State) ->
     {tag(pre_probe, pre_after_probe, Probes), State}.
 
 pre_probe({probe, Point, _Predicate, Statements}, State) ->
-    pre_probe({probe, Point, split_terms(Statements)}, State);
+    pre_probe({probe, Point, format_terms(Statements)}, State);
 pre_probe({probe, _Point, Statements}, State) ->
-    {tag(pre_st, pre_after_st, split_terms(Statements)), State}.
+    {tag(pre_st, pre_after_st, format_terms(Statements)), State}.
 
 pre_after_probe({probe, Point, Predicate, _}, Children, State) ->
-    {{probe, Point, Predicate, Children}, State};
+    {{probe, Point, Predicate, merge_printfs(Children)}, State};
 pre_after_probe({probe, Point, _}, Children, State) ->
-    {{probe, Point, Children}, State}.
+    {{probe, Point, merge_printfs(Children)}, State}.
 
 pre_st({?op_assign, Name, _Value}, State) ->
     add_var(Name, State);
@@ -53,40 +53,24 @@ pre_after_st(Item, _Children, State) ->
 add_var(Name, State = #gen_state{vars = Vars}) ->
     {[], State#gen_state{vars = ordsets:add_element(Name, Vars)}}.
 
-split_terms(Statements) ->
-    lists:flatmap(fun({print_term, Term}) ->
-                          split_term(Term, []);
-                     ({print_term, Term, Items}) ->
-                          split_term(Term, Items);
-                     (St) ->
-                          [St]
+format_terms(Statements) ->
+    lists:flatmap(fun({print_term, Term})        -> format_term(Term, []);
+                     ({print_term, Term, Items}) -> format_term(Term, Items);
+                     (St)                        -> [St]
                   end, Statements).
 
-split_term(Term, Items) ->
-    Str = lists:flatten(io_lib:format("~p.", [Term])),
+format_term(Term, Items) ->
+    Str = lists:flatten(io_lib:format("~p.~n", [Term])),
     {ok, Tokens, _} = erl_scan:string(Str, 1, [text]),
-    Parts = lists:reverse(lists:foldl(fun(Token, Acc) ->
-                                              add_token(Token, Acc, Items)
-                                      end, [], Tokens)),
-    FlatParts = lists:flatten([process_part(Pt) || Pt <- Parts]),
-    lists:reverse(lists:foldl(fun({printf, NewText}, [{printf, Text}|Rest]) ->
-                                      [{printf, Text ++ NewText}|Rest];
-                                 (Pt, Pts) ->
-                                      [Pt|Pts]
-                              end, [], FlatParts ++ [{printf, "\n"}])).
+    lists:flatmap(fun(Token) -> process_token(Token, Items) end, Tokens).
 
-add_token(Token, Acc, Items) ->
+process_token(Token, Items) ->
     case maybe_token_to_item(Token, Items) of
         {ok, Item} ->
-            [Item|Acc];
-        _ ->
+            process_item(Item);
+        false ->
             {text, Text} = erl_scan:token_info(Token, text),
-            case Acc of
-                [{text, Texts}|Rest] ->
-                    [{text, [Text|Texts]}|Rest];
-                _ ->
-                    [{text, [Text]}|Acc]
-            end
+            [{printf, Text}]
     end.
 
 maybe_token_to_item({atom, _, Atom}, Items) ->
@@ -103,13 +87,11 @@ maybe_token_to_item({atom, _, Atom}, Items) ->
     end;
 maybe_token_to_item(_, _) -> false.
 
-process_part({text, RevStrings}) ->
-    {printf, lists:flatten(lists:reverse(RevStrings))};
-process_part({stat, Format, Stats}) when is_list(Format) ->
-    process_part({stat, {Format}, Stats});
-process_part({stat, Format, Stats}) when is_atom(Stats) ->
-    process_part({stat, Format, [Stats]});
-process_part({stat, Format0, Stats}) ->
+process_item({stat, Format, Stats}) when is_list(Format) ->
+    process_item({stat, {Format}, Stats});
+process_item({stat, Format, Stats}) when is_atom(Stats) ->
+    process_item({stat, Format, [Stats]});
+process_item({stat, Format0, Stats}) ->
     Format = [process_format_item(F) || F <- tuple_to_list(Format0)],
     [{printf, "[stat"},
      {printa,
@@ -123,9 +105,19 @@ process_format_item("%s")  -> "\"%s\"";
 process_format_item("%@s") -> "\"%@s\"";
 process_format_item(F)     -> F.
 
-%% dfs(F, Elem, Acc0) ->
-%%     {Acc, Children} = F(Elem, Acc),
-%%     lists:mapfoldl(fun(El, AccIn) -> dfs(F, El, AccIn) end, Acc, Children).
+merge_printfs(Statements) ->
+    lists:foldl(fun maybe_merge/2, [], lists:reverse(Statements)).
+
+maybe_merge({printf, NewText}, [{printf, Text}|Rest]) ->
+    [{printf, NewText ++ Text}|Rest];
+maybe_merge({printf, NewText}, [{printf, Format, Items}|Rest]) ->
+    [{printf, NewText ++ Format, Items}|Rest];
+maybe_merge({printf, NewFormat, NewItems}, [{printf, Text}|Rest]) ->
+    [{printf, NewFormat ++ Text, NewItems}|Rest];
+maybe_merge({printf, NewFormat, NewItems}, [{printf, Format, Items}|Rest]) ->
+    [{printf, NewFormat ++ Format, NewItems ++ Items}|Rest];
+maybe_merge(St, OutStatements) ->
+    [St|OutStatements].
 
 %%-----------------------------------------------------------------------------
 %% common callbacks for systemtap and dtrace - pass 2: generate
