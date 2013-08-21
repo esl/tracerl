@@ -20,8 +20,6 @@
 -export([after_probe/3, st/2, st_body/2, op/2, nop/2, nop/3,
          indent/2, outdent/3, align/2]).
 
--compile(export_all).
-
 %%-----------------------------------------------------------------------------
 %% common callbacks for systemtap and dtrace - pass 1: preprocess
 %%-----------------------------------------------------------------------------
@@ -99,7 +97,9 @@ process_item({stat, Format0, Stats}) ->
           [F] -> "," ++ F;
           _   -> lists:flatten([",{", sep(Format, ","), "}"])
       end, Stats},
-     {printf, "]"}].
+     {printf, "]"}];
+process_item({FormatItem, Op}) ->
+    [{printf, process_format_item(FormatItem), [Op]}].
 
 process_format_item("%s")  -> "\"%s\"";
 process_format_item("%@s") -> "\"%@s\"";

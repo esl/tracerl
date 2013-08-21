@@ -169,7 +169,7 @@ count_messages_by_sender_and_receiver_term_test(_Config) ->
     receive {'DOWN', Ref2, process, Receiver2, normal} -> ok end,
     tracerl_process:stop(DP),
     ?wait_for(eof),
-    ?wait_for({term, {sent, [stat|Stat0]}}, 0),
+    ?wait_for({term, {sent, [stat|Stat0], 42}}, 0),
     Stat = [{?l2p(P1), ?l2p(P2), N} || {P1, P2, N} <- Stat0],
     true = lists:member({Sender1, Receiver1, 10}, Stat),
     true = lists:member({Sender1, Receiver2, 5}, Stat),
@@ -318,13 +318,16 @@ count_messages_by_sender_and_receiver_script(Senders) ->
 count_messages_by_sender_and_receiver_term_script(Senders) ->
     Predicates = [{'==', sender_pid, Sender} || Sender <- Senders],
     [{probe, 'begin',
-      [{print_term, start}]},
+      [{'=', total, 0},
+       {print_term, start}]},
      {probe, "message-send", {'||', Predicates},
-      [%{print_term, {debug, sent %s %s %d\n", [sender_pid, receiver_pid, size]},
-       {count, msg, [sender_pid, receiver_pid]}]},
+      [{print_term, {debug, {'$1', '$2', '$3'}},
+        [{"%s", sender_pid}, {"%s", receiver_pid}, {"%d", size}]},
+       {count, msg, [sender_pid, receiver_pid]},
+       {'++', total}]},
      {probe, 'end',
-      [{print_term, {sent, '$1'},
-        [{stat, {"%s", "%s", "%@d"}, msg}]}
+      [{print_term, {sent, '$1', '$2'},
+        [{stat, {"%s", "%s", "%@d"}, msg}, {"%d", total}]}
       ]}
     ].
 
