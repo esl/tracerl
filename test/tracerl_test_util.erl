@@ -23,6 +23,7 @@ start_trace(ScriptSrc) ->
     Collector = spawn(fun() -> collect(Self, []) end),
     {ok, DP} = tracerl_process:start_link(ScriptSrc, node(),
                                           fun(Msg) -> Collector ! Msg end),
+    register(tracerl_process, DP),
     ct:log(gen_server:call(DP, get_script)),
     DP.
 
@@ -32,6 +33,7 @@ start_term_trace(ScriptSrc) ->
     {ok, DP} = tracerl_process:start_link(
                  ScriptSrc, node(),
                  tracerl_util:term_handler(fun(Msg) -> Collector ! Msg end)),
+    register(tracerl_process, DP),
     ct:log(gen_server:call(DP, get_script)),
     DP.
 

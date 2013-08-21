@@ -41,6 +41,15 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
+init_per_testcase(_Case, Config) ->
+    Config.
+
+end_per_testcase(_Case, _Config) ->
+    case whereis(tracerl_process) of
+        undefined -> ok;
+        DP        -> tracerl_process:stop(DP)
+    end.
+
 %%%-------------------------------------------------------------------
 %%% Test cases
 %%%-------------------------------------------------------------------
