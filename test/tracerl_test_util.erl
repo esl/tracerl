@@ -34,6 +34,12 @@ start_term_trace(ScriptSrc) ->
     ct:log(gen_server:call(DP, get_script)),
     DP.
 
+ensure_stop_trace() ->
+    case whereis(tracerl_process) of
+        undefined -> ok;
+        DP        -> tracerl:stop(DP)
+    end.
+
 collect(Dest, Output) ->
     receive
         {line, "DEBUG " ++ _ = L} ->

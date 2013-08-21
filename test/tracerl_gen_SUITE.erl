@@ -15,7 +15,8 @@
 -compile(export_all).
 
 -import(tracerl_test_util,
-        [all_if_dyntrace/1, start_trace/1, start_term_trace/1,
+        [all_if_dyntrace/1,
+         start_trace/1, start_term_trace/1, ensure_stop_trace/0,
          send_n/2, receive_n/2, send_all/1, receive_all/1,
          ring_start/1, ring_stop/1, ring_send/3]).
 
@@ -45,10 +46,7 @@ init_per_testcase(_Case, Config) ->
     Config.
 
 end_per_testcase(_Case, _Config) ->
-    case whereis(tracerl_process) of
-        undefined -> ok;
-        DP        -> tracerl_process:stop(DP)
-    end.
+    ensure_stop_trace().
 
 %%%-------------------------------------------------------------------
 %%% Test cases
