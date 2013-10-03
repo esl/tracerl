@@ -105,6 +105,18 @@ st_body({count, Name, Keys}, State) ->
 st_body({Type, Name, Keys, Value}, State)
   when Type == sum; Type == min; Type == max; Type == avg ->
     stat_body({Type, Name, Keys, Value}, State);
+st_body({reset, Names}, State = #gen_state{st = #sstate{multi_keys = MKeys}})
+  when is_list(Names) ->
+    [H|T] = orddict:fold(fun(KNames, MKName, NamesAcc) ->
+                                 case lists:all(fun(N) ->
+                                                        lists:member(N, Names)
+                                                end, KNames) of
+                                     true  -> [MKName | NamesAcc];
+                                     false -> NamesAcc
+                                 end
+                         end, Names, MKeys),
+    {sep([{st_body, {reset, H}} |
+          [{align, {st_body, {reset, Name}}} || Name <- T]], "\n"), State};
 st_body({reset, Name}, State) ->
     {["delete ", ?a2l(Name)], State};
 st_body({group, Items}, State) ->
@@ -135,7 +147,7 @@ st_body(_, _) ->
     false.
 
 stat_body({Type, Name, Keys, Value}, State = #gen_state{stats = Stats,
-                                                    st = SState}) ->
+                                                        st = SState}) ->
     MVs = get_multi_vals(Name, SState#sstate.multi_keys),
     {[?a2l(Name), "[", sep_t(op, Keys, ", "), "] <<< ", {op, Value} |
       [["\n", {st, {set, MV, Keys}}] || MV <- MVs]],

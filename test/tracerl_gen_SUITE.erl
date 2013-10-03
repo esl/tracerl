@@ -33,6 +33,7 @@ all() ->
        count_messages_by_sender_and_receiver_test,
        count_messages_by_sender_and_receiver_term_test,
        count_messages_up_down_test,
+       count_messages_up_down_with_reset_test,
        sender_and_receiver_set_test,
        message_receive_stats_test]).
 
@@ -190,6 +191,26 @@ count_messages_up_down_test(_Config) ->
     ?expect({line, ["sent", "up", 10, "down", 5, "from", C, "to", D]}),
     ?expect({line, ["sent", "up", 5, "down", 10, "from", A, "to", D]}).
 
+count_messages_up_down_with_reset_test(_Config) ->
+    [A, B, C, D] = Ps = ring_start(4),
+    DP = start_trace(count_messages_up_down_with_reset_script(Ps)),
+    ?wait_for({line, ["start"]}),
+    Ref1 = ring_send(Ps, 10, self()),
+    receive {finished, Ref1} -> ok end,
+    ?wait_for({line, ["sent", "up", 10, "down", 0, "from", A, "to", B]}),
+    ?wait_for({line, ["sent", "up", 10, "down", 0, "from", B, "to", C]}),
+    ?wait_for({line, ["sent", "up", 10, "down", 0, "from", C, "to", D]}),
+    ?wait_for({line, ["sent", "up", 0, "down", 10, "from", A, "to", D]}),
+    Ref2 = ring_send([C, B, A], 5, self()),
+    receive {finished, Ref2} -> ok end,
+    ring_stop(Ps),
+    ?wait_for({line, ["sent", "up", 0, "down", 5, "from", A, "to", B]}),
+    ?wait_for({line, ["sent", "up", 0, "down", 5, "from", B, "to", C]}),
+    ?wait_for({line, ["sent", "up", 5, "down", 0, "from", A, "to", C]}),
+    tracerl_process:stop(DP),
+    ?wait_for(eof),
+    ?expect_not({line, ["sent", "up", _, "down", _, "from", A, "to", D]}).
+
 sender_and_receiver_set_test(_Config) ->
     [A, B, C] = Ps = ring_start(3),
     DP = start_trace(sender_and_receiver_set_script(Ps)),
@@ -343,6 +364,22 @@ count_messages_up_down_script(Senders) ->
        {count, msg_down, [receiver_pid, sender_pid]}]},
      {probe, 'end',
       [{printa, "sent up %@d down %@d from %s to %s\n", [msg_up, msg_down]}]}].
+
+count_messages_up_down_with_reset_script(Senders) ->
+    Predicates = [{'==', sender_pid, Sender} || Sender <- Senders],
+    [{probe, 'begin',
+      [{printf, "start\n"}]},
+     {probe, "message-send", {'&&', [{'||', Predicates},
+                                     {'<', sender_pid, receiver_pid}]},
+      [{printf, "DEBUG sent up %s %s %d\n", [sender_pid, receiver_pid, size]},
+       {count, msg_up, [sender_pid, receiver_pid]}]},
+     {probe, "message-send", {'&&', [{'||', Predicates},
+                                     {'>', sender_pid, receiver_pid}]},
+      [{printf, "DEBUG sent down %s %s %d\n", [sender_pid, receiver_pid, size]},
+       {count, msg_down, [receiver_pid, sender_pid]}]},
+     {probe, {tick, 1},
+      [{printa, "sent up %@d down %@d from %s to %s\n", [msg_up, msg_down]},
+       {reset, [msg_up, msg_down]}]}].
 
 sender_and_receiver_set_script(Senders) ->
     Predicates = [{'==', sender_pid, Sender} || Sender <- Senders],

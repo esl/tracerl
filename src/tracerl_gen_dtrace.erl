@@ -64,6 +64,9 @@ st_body({count, Name, Keys}, State) ->
 st_body({Type, Name, Keys, Value}, State)
   when Type == sum; Type == min; Type == max; Type == avg ->
     stat_body({Type, Name, Keys, {op, Value}}, State);
+st_body({reset, [H|T]}, State) ->
+    {sep([{st_body, {reset, H}} |
+          [{align, {st_body, {reset, Name}}} || Name <- T]], ";\n"), State};
 st_body({reset, Name}, State) ->
     {["trunc(@", ?a2l(Name), ")"], State};
 st_body({group, Items}, State) ->
