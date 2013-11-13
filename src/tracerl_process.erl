@@ -67,6 +67,7 @@ stop(Pid) ->
 %% @end
 %%--------------------------------------------------------------------
 init([ScriptSrc, Node, Handler]) ->
+    process_flag(trap_exit, true),
     {Port, QuitPid, SrcFile, Script} =
         tracerl_util:start_trace(ScriptSrc, Node),
     {ok, #state{port = Port, quit_pid = QuitPid,

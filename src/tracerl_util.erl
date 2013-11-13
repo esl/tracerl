@@ -41,7 +41,7 @@ start_trace(ScriptSrc, Node) ->
 
 start_trace(ScriptSrc, PortArgs, Node) ->
     Sudo = os:find_executable(sudo),
-    Pid = spawn(Node, timer, sleep, [infinity]),
+    Pid = proc_lib:spawn_link(Node, timer, sleep, [infinity]),
     PidStr = rpc:call(Node, erlang, pid_to_list, [Pid]),
     Termination = termination_probe(PidStr),
     Script = ?tracerl_gen(Node):script([Termination|ScriptSrc], Node),
