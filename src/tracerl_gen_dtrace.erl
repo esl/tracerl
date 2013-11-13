@@ -15,16 +15,14 @@
 
 -compile(export_all).
 
--record(dstate, {pid}).
-
 %%-----------------------------------------------------------------------------
 %% API
 %%-----------------------------------------------------------------------------
 script(ScriptSrc) ->
     tracerl_gen:script(?MODULE, ScriptSrc).
 
-script(ScriptSrc, NodeOrPidStr) ->
-    tracerl_gen:script(?MODULE, ScriptSrc, NodeOrPidStr).
+script(ScriptSrc, Node) ->
+    tracerl_gen:script(?MODULE, ScriptSrc, Node).
 
 %%-----------------------------------------------------------------------------
 %% tracerl_gen callbacks - pass 1: preprocess
@@ -36,8 +34,8 @@ script(ScriptSrc, NodeOrPidStr) ->
 generate(Probes, State) ->
     {sep_t(probe, after_probe, Probes, "\n"), State}.
 
-init_state(PidStr) when is_list(PidStr) ->
-    #gen_state{st = #dstate{pid = PidStr}}.
+init_state(State) ->
+    State.
 
 probe({probe, Point, Statements}, State) ->
     {[{probe_point, Point}, " ", {st, {group, Statements}}, "\n"], State};
@@ -52,9 +50,9 @@ probe_point('end', State) ->
     {"END", State};
 probe_point({tick, N}, State) ->
     {["tick-", ?i2l(N), "s"], State};
-probe_point(Function, State = #gen_state{st = DState})
+probe_point(Function, State = #gen_state{pid = OSPid})
   when is_integer(hd(Function)) ->
-    {["erlang", DState#dstate.pid, ":::", Function],
+    {["erlang", OSPid, ":::", Function],
      insert_args(Function, State)}.
 
 st_body({set, Name, Keys}, State) ->
@@ -100,11 +98,5 @@ op({arg_str, N}, State) when is_integer(N), N > 0 ->
     {["copyinstr(arg", ?i2l(N-1), ")"], State};
 op({arg, N}, State) when is_integer(N), N > 0 ->
     {["arg", ?i2l(N-1)], State};
-op(Pid, State) when is_pid(Pid) ->
-    {["\"", ?p2l(Pid), "\""], State};
-op(Str, State) when is_integer(hd(Str)) ->
-    {io_lib:format("~p", [Str]), State};
-op(Int, State) when is_integer(Int) ->
-    {?i2l(Int), State};
 op(_, _) ->
     false.

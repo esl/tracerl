@@ -160,13 +160,18 @@ op(Name, State = #gen_state{args = Args, vars = Vars})
          {ok, Arg} ->
              [{op, Arg}];
          error ->
-             ct:log("~p ~p ~n", [Name, State]),
              true = ordsets:is_element(Name, Vars),
              ?a2l(Name)
      end, State};
 op({Name, Keys}, State = #gen_state{vars = Vars}) when is_atom(Name) ->
     true = ordsets:is_element(Name, Vars),
-    {[?a2l(Name), "[", sep_t(op, Keys, ", "), "]"], State}.
+    {[?a2l(Name), "[", sep_t(op, Keys, ", "), "]"], State};
+op(Pid, State = #gen_state{node = Node}) when is_pid(Pid) ->
+    {["\"", ?p2l(Node, Pid), "\""], State};
+op(Str, State) when is_integer(hd(Str)) ->
+    {io_lib:format("~p", [Str]), State};
+op(Int, State) when is_integer(Int) ->
+    {?i2l(Int), State}.
 
 nop(Item, State) ->
     {Item, State}.

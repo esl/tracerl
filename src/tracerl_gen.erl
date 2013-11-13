@@ -8,6 +8,8 @@
 %%%-------------------------------------------------------------------
 -module(tracerl_gen).
 
+-include("tracerl_util.hrl").
+
 -export([script/2, script/3]).
 
 script(CbkMod, ScriptSrc) ->
@@ -15,10 +17,9 @@ script(CbkMod, ScriptSrc) ->
 
 script(CbkMod, ScriptSrc, Node) when is_atom(Node) ->
     PidStr = rpc:call(Node, os, getpid, []),
-    script(CbkMod, ScriptSrc, PidStr);
-script(CbkMod, ScriptSrc, PidStr) ->
+    State0 = #gen_state{node = Node, pid = PidStr},
     {PreScriptSrc, State} =
-        process(CbkMod, preprocess, ScriptSrc, CbkMod:init_state(PidStr)),
+        process(CbkMod, preprocess, ScriptSrc, CbkMod:init_state(State0)),
     io:format("~p~n", [PreScriptSrc]),
     {Script, _State} =
         process(CbkMod, generate, PreScriptSrc, State),

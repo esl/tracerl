@@ -8,6 +8,7 @@
 %%%-------------------------------------------------------------------
 -module(tracerl_test_util).
 
+-include("tracerl_util.hrl").
 -include_lib("test_server/include/test_server.hrl").
 
 -compile(export_all).
@@ -19,18 +20,22 @@ all_if_dyntrace(All) ->
     end.
 
 start_trace(ScriptSrc) ->
+    start_trace(ScriptSrc, node()).
+
+start_trace(ScriptSrc, Node) ->
     Self = self(),
-    Collector = spawn(fun() -> collect(Self, []) end),
-    {ok, DP} = tracerl:start_link(ScriptSrc, node(), Collector,
-                                  [{name, {local, tracerl_process}}]),
+    Collector = spawn(fun() -> collect(Self, Node, []) end),
+    {ok, DP} = tracerl:start_link(ScriptSrc, Node, Collector),
     ct:log(gen_server:call(DP, get_script)),
     DP.
 
 start_term_trace(ScriptSrc) ->
+    start_term_trace(ScriptSrc, node()).
+
+start_term_trace(ScriptSrc, Node) ->
     Self = self(),
     Collector = spawn(fun() -> collect_terms(Self, []) end),
-    {ok, DP} = tracerl:start_link(ScriptSrc, node(), Collector,
-                                  [{name, {local, tracerl_process}}, term]),
+    {ok, DP} = tracerl:start_link(ScriptSrc, Node, Collector, [term]),
     ct:log(gen_server:call(DP, get_script)),
     DP.
 
@@ -40,15 +45,17 @@ ensure_stop_trace() ->
         DP        -> tracerl:stop(DP)
     end.
 
-collect(Dest, Output) ->
+collect(Dest, Node, Output) ->
     receive
+        {line, ""} ->
+            collect(Dest, Node, Output);
         {line, "DEBUG " ++ _ = L} ->
-            TermL = termify_line(L),
-            collect(Dest, [TermL|Output]);
+            TermL = termify_line(L, Node),
+            collect(Dest, Node, [TermL|Output]);
         {line, L} ->
-            TermL = termify_line(L),
+            TermL = termify_line(L, Node),
             Dest ! {line, TermL},
-            collect(Dest, [TermL|Output]);
+            collect(Dest, Node, [TermL|Output]);
         eof ->
             ct:log("trace output:~n~p~n", [lists:reverse(Output)]),
             Dest ! eof
@@ -66,14 +73,16 @@ collect_terms(Dest, Output) ->
             Dest ! eof
     end.
 
-termify_line(L) ->
-    [termify_token(Token) || Token <- re:split(L, " ", [{return,list}])].
+termify_line(L, Node) ->
+    [termify_token(Token, Node) || Token <- re:split(L, " ", [{return,list}])].
 
-termify_token(L) ->
-    try list_to_integer(L)
+termify_token(L, Node) ->
+    try
+        ?l2i(L)
     catch error:badarg ->
-            try list_to_pid(L)
-            catch error:badarg -> L
+            case ?l2p(Node, L) of
+                {badrpc, _} -> L;
+                Pid -> Pid
             end
     end.
 

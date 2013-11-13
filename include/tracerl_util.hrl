@@ -6,7 +6,9 @@
 %%% @end
 %%% Created : 26 Jul 2013 by pawel.chrzaszcz@erlang-solutions.com
 %%%-------------------------------------------------------------------
--record(gen_state, {st,
+-record(gen_state, {node,
+                    pid,
+                    st,
                     vars = ordsets:new(),
                     stats = orddict:new(),
                     args = orddict:new(),
@@ -15,7 +17,10 @@
 -define(a2l(A), atom_to_list(A)).
 -define(i2l(I), integer_to_list(I)).
 -define(p2l(P), pid_to_list(P)).
+-define(p2l(Node, P), rpc:call(Node, erlang, pid_to_list, [P])).
+-define(l2i(I), list_to_integer(I)).
 -define(l2p(L), list_to_pid(L)).
+-define(l2p(Node, L), rpc:call(Node, erlang, list_to_pid, [L])).
 
 -define(INDENT, 2).
 

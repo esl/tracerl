@@ -16,7 +16,6 @@
 -compile(export_all).
 
 -record(sstate, {name,
-                 pid,
                  multi_keys = orddict:new()}).
 
 %%-----------------------------------------------------------------------------
@@ -25,8 +24,8 @@
 script(ScriptSrc) ->
     tracerl_gen:script(?MODULE, ScriptSrc).
 
-script(ScriptSrc, NodeOrPidStr) ->
-    tracerl_gen:script(?MODULE, ScriptSrc, NodeOrPidStr).
+script(ScriptSrc, Node) ->
+    tracerl_gen:script(?MODULE, ScriptSrc, Node).
 
 %%-----------------------------------------------------------------------------
 %% tracerl_gen callbacks - pass 1: preprocess
@@ -48,13 +47,12 @@ pre_st(_, _) ->
 generate(Probes, State) ->
     {[{nop, add_globals, [sep_t(probe, after_probe, Probes, "\n")]}], State}.
 
-init_state(PidStr) when is_list(PidStr) ->
+init_state(State = #gen_state{pid = OSPid}) ->
     Name = os:cmd(io_lib:format(
                     "ps -p ~p -o command | tail -n 1 | awk '{print $1}'",
-                    [PidStr])),
-    SState = #sstate{name = re:replace(Name, "\\s*$", "", [{return, list}]),
-                     pid = PidStr},
-    #gen_state{st = SState}.
+                    [OSPid])),
+    SState = #sstate{name = re:replace(Name, "\\s*$", "", [{return, list}])},
+    State#gen_state{st = SState}.
 
 add_globals(_Item, Script, State = #gen_state{stats = [], vars = []}) ->
     {Script, State};
@@ -72,16 +70,16 @@ probe({probe, Point, Predicate, Statements}, State) when not is_list(Point) ->
       {indent, outdent, [{align, "if ("}, {op, Predicate}, ") ",
                          {st_body, {group, Statements}}]},
       "\n}\n"], State};
-probe({probe, Point, Statements}, State = #gen_state{st = SState}) ->
+probe({probe, Point, Statements}, State = #gen_state{pid = OSPid}) ->
     {[{probe_point, Point},
       " {\n",
-      {indent, outdent, [{align, "if (pid() == "}, SState#sstate.pid, ") ",
+      {indent, outdent, [{align, "if (pid() == "}, OSPid, ") ",
                          {st_body, {group, Statements}}]},
       "\n}\n"], State};
-probe({probe, Point, Predicate, Statements}, State = #gen_state{st = SState}) ->
+probe({probe, Point, Predicate, Statements}, State = #gen_state{pid = OSPid}) ->
     {[{probe_point, Point},
       " {\n",
-      {indent, outdent, [{align, "if (pid() == "}, SState#sstate.pid,
+      {indent, outdent, [{align, "if (pid() == "}, OSPid,
                          " && (", {op, Predicate}, ")) ",
                          {st_body, {group, Statements}}]},
       "\n}\n"], State}.
@@ -193,11 +191,5 @@ op({arg_str, N}, State) when is_integer(N), N > 0 ->
     {["user_string($arg",?i2l(N),")"], State};
 op({arg, N}, State) when is_integer(N), N > 0 ->
     {["$arg",?i2l(N)], State};
-op(Pid, State) when is_pid(Pid) ->
-    {["\"", ?p2l(Pid), "\""], State};
-op(Str, State) when is_integer(hd(Str)) ->
-    {io_lib:format("~p", [Str]), State};
-op(Int, State) when is_integer(Int) ->
-    {?i2l(Int), State};
 op(_, _) ->
     false.
