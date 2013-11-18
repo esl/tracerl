@@ -19,7 +19,6 @@
 
 -import(tracerl_test_util, [all_if_dyntrace/1,
                             start_trace/1, start_trace/2,
-                            ensure_stop_trace/0,
                             send_all/1, receive_all/1]).
 
 -define(msg1, "message").
@@ -83,8 +82,7 @@ end_per_testcase(_Case, _Config) ->
     case lists:member(message, ct:get_config(dbg)) of
         true  -> dbg:p(clear);
         false -> ok
-    end,
-    ensure_stop_trace().
+    end.
 
 %%%-------------------------------------------------------------------
 %%% Test cases
@@ -118,7 +116,7 @@ process_scheduling_test(_Config) ->
 message_test(_Config) ->
     Sender = spawn(fun() -> send_all([?msg2, ?msg1]) end),
     {Receiver, Ref} = spawn_monitor(fun() -> receive_all([?msg1]) end),
-    DP = start_trace(message_script(Receiver)),
+    DP = start_trace(message_script([Receiver])),
     ?wait_for({line, ["start"]}),
     Sender ! {start, Receiver},
     receive {'DOWN', Ref, process, Receiver, normal} -> ok end,
@@ -130,7 +128,7 @@ message_self_test(_Config) ->
                                        send_all([?msg2, ?msg1]),
                                        receive_all([?msg1])
                                end),
-    DP = start_trace(message_script(Pid)),
+    DP = start_trace(message_script([Pid])),
     ?wait_for({line, ["start"]}),
     Pid ! {start, Pid},
     receive {'DOWN', Ref, process, Pid, normal} -> ok end,
@@ -141,26 +139,36 @@ message_dist_test(Config) ->
     {Receiver, Ref} = spawn_monitor(fun() -> receive_all([?msg1]) end),
     Slave = ?config(slave, Config),
     Sender = spawn(Slave, slave, relay, [Receiver]),
-    %SenderStr = rpc:call(slave, erlang, pid_to_list, [Sender]),
-    DP = start_trace(message_script(Receiver)),
-    SlaveDP = start_trace(message_script(Sender, "slave-"), Slave),
+    DP = start_trace(message_script([Sender, Receiver])),
+    SlaveDP = start_trace(message_script([Sender, Receiver], "slave-"), Slave),
+    {Size1, Size2} = {?msize(?msg1), ?msize(?msg2)},
+    Self = self(),
+    [SlaveStr, NodeStr] = ["'"++L++"'" || L <- [?a2l(Slave), ?a2l(node())]],
     ?wait_for({line, ["start"]}),
     ?wait_for({line, ["slave-start"]}),
+
     Sender ! ?msg2,
-    {Size1, Size2} = {?msize(?msg1), ?msize(?msg2)},
-    ?wait_for({line, ["slave-queued", Sender, _, 1]}),
-    ?wait_for({line, ["slave-received", Sender, Size2, 0]}),
-    %%TODO slave-sent?
+    ?wait_for({line, ["slave-sent-remote", Sender, _, Receiver, Size2]}),
+    ?expect({line, ["slave-sent", Sender, Receiver, Size2]}),
+    ?expect({line, ["slave-queued", Sender, _, 1]}),
+    ?expect({line, ["slave-received", Sender, Size2, 0]}),
+    ?wait_for({line, ["queued", Receiver, _, 1]}),
+    ?expect({line, ["sent", Self, Sender, Size2]}),
+    ?expect({line, ["sent-remote", Self, SlaveStr, Sender, Size2]}),
+
     Sender ! ?msg1,
-    ?wait_for({line, ["slave-queued", Sender, _, 1]}),
-    ?wait_for({line, ["slave-received", Sender, Size1, 0]}),
-    %%TODO slave-sent?
-    receive {'DOWN', Ref, process, Receiver, normal} -> ok end,
+    ?wait_for({line, ["slave-sent-remote", Sender, NodeStr, Receiver, Size1]}),
+    ?expect({line, ["slave-sent", Sender, Receiver, Size1]}),
+    ?expect({line, ["slave-queued", Sender, _, 1]}),
+    ?expect({line, ["slave-received", Sender, Size1, 0]}),
+    ?wait_for({line, ["received", Receiver, Size1, 1]}),
+    ?expect({line, ["queued", Receiver, _, 2]}),
+    ?expect({line, ["sent", Self, Sender, Size1]}),
+    ?expect({line, ["sent-remote", Self, SlaveStr, Sender, Size1]}),
+
+    receive {'DOWN', Ref, process, _, normal} -> ok end,
     tracerl:stop(DP),
     tracerl:stop(SlaveDP),
-    ?wait_for({line, ["queued", Receiver, _, 1]}),
-    ?wait_for({line, ["queued", Receiver, _, 2]}),
-    ?wait_for({line, ["received", Receiver, Size1, 1]}),
     ?wait_for(eof),
     ?wait_for(eof),
     ?expect_not({line, _}).
@@ -237,16 +245,22 @@ process_scheduling_script() ->
       [{printf, "exit %s\n", [pid]}]}
     ].
 
-message_script(Receiver) ->
-    message_script(Receiver, "").
+message_script(Receivers) ->
+    message_script(Receivers, "").
 
-message_script(Receiver, Tag) ->
+message_script(Receivers, Tag) ->
     [{probe, 'begin',
       [{printf, Tag ++ "start\n"}]},
-     {probe, "message-send", {'==', receiver_pid, Receiver},
+     {probe, "message-send", pid_pred(receiver_pid, Receivers),
       [{printf, Tag ++ "sent %s %s %d\n", [sender_pid, receiver_pid, size]}]},
-     {probe, "message-queued", {'==', pid, Receiver},
+     {probe, "message-send-remote", pid_pred(receiver_pid, Receivers),
+      [{printf, Tag ++ "sent-remote %s %s %s %d\n",
+        [sender_pid, node, receiver_pid, size]}]},
+     {probe, "message-queued", pid_pred(pid, Receivers),
       [{printf, Tag ++ "queued %s %d %d\n", [pid, size, queue_length]}]},
-     {probe, "message-receive", {'==', pid, Receiver},
+     {probe, "message-receive", pid_pred(pid, Receivers),
       [{printf, Tag ++ "received %s %d %d\n", [pid, size, queue_length]}]}
     ].
+
+pid_pred(Name, Pids) ->
+    {'||', [{'==', Name, Pid} || Pid <- Pids]}.

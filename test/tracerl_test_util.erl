@@ -9,7 +9,7 @@
 -module(tracerl_test_util).
 
 -include("tracerl_util.hrl").
--include_lib("test_server/include/test_server.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -compile(export_all).
 
@@ -24,7 +24,7 @@ start_trace(ScriptSrc) ->
 
 start_trace(ScriptSrc, Node) ->
     Self = self(),
-    Collector = spawn(fun() -> collect(Self, Node, []) end),
+    Collector = proc_lib:spawn_link(fun() -> collect(Self, Node, []) end),
     {ok, DP} = tracerl:start_link(ScriptSrc, Node, Collector),
     ct:log(gen_server:call(DP, get_script)),
     DP.
@@ -34,7 +34,7 @@ start_term_trace(ScriptSrc) ->
 
 start_term_trace(ScriptSrc, Node) ->
     Self = self(),
-    Collector = spawn(fun() -> collect_terms(Self, []) end),
+    Collector = proc_lib:spawn_link(fun() -> collect_terms(Self, []) end),
     {ok, DP} = tracerl:start_link(ScriptSrc, Node, Collector, [term]),
     ct:log(gen_server:call(DP, get_script)),
     DP.
@@ -46,6 +46,7 @@ ensure_stop_trace() ->
     end.
 
 collect(Dest, Node, Output) ->
+    process_flag(trap_exit, true),
     receive
         {line, ""} ->
             collect(Dest, Node, Output);
@@ -57,11 +58,16 @@ collect(Dest, Node, Output) ->
             Dest ! {line, TermL},
             collect(Dest, Node, [TermL|Output]);
         eof ->
-            ct:log("trace output:~n~p~n", [lists:reverse(Output)]),
-            Dest ! eof
+            ct:log("finished, trace output:~n~p~n", [lists:reverse(Output)]),
+            Dest ! eof;
+        Msg ->
+            ct:pal(error, ?HI_IMPORTANCE,
+                   "exited because of ~p~ntrace output:~n~p~n",
+                   [Msg, lists:reverse(Output)])
     end.
 
 collect_terms(Dest, Output) ->
+    process_flag(trap_exit, true),
     receive
         {term, {debug, _} = Debug} ->
             collect_terms(Dest, [Debug|Output]);
@@ -69,8 +75,12 @@ collect_terms(Dest, Output) ->
             Dest ! {term, Term},
             collect_terms(Dest, [Term|Output]);
         eof ->
-            ct:log("trace output:~n~p~n", [lists:reverse(Output)]),
-            Dest ! eof
+            ct:log("finished, trace output:~n~p~n", [lists:reverse(Output)]),
+            Dest ! eof;
+        Msg ->
+            ct:pal(error, ?HI_IMPORTANCE,
+                   "exited because of ~p~ntrace output:~n~p~n",
+                   [Msg, lists:reverse(Output)])
     end.
 
 termify_line(L, Node) ->
@@ -82,8 +92,15 @@ termify_token(L, Node) ->
     catch error:badarg ->
             case ?l2p(Node, L) of
                 {badrpc, _} -> L;
-                Pid -> Pid
+                Pid -> fix_pid_creation(Pid, Node)
             end
+    end.
+
+fix_pid_creation(Pid, Node) ->
+    case node(Pid) == Node of
+        true  -> Pid;
+        false -> binary_to_term(
+                   rpc:call(node(Pid), erlang, term_to_binary, [Pid]))
     end.
 
 %%%-------------------------------------------------------------------
