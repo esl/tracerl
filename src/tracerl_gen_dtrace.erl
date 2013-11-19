@@ -25,6 +25,12 @@ script(ScriptSrc, Node) ->
     tracerl_gen:script(?MODULE, ScriptSrc, Node).
 
 %%-----------------------------------------------------------------------------
+%% tracerl_gen callbacks
+%%-----------------------------------------------------------------------------
+init_state(State) ->
+    State.
+
+%%-----------------------------------------------------------------------------
 %% tracerl_gen callbacks - pass 1: preprocess
 %%-----------------------------------------------------------------------------
 
@@ -33,9 +39,6 @@ script(ScriptSrc, Node) ->
 %%-----------------------------------------------------------------------------
 generate(Probes, State) ->
     {sep_t(probe, after_probe, Probes, "\n"), State}.
-
-init_state(State) ->
-    State.
 
 probe({probe, Point, Statements}, State) ->
     {[{probe_point, Point}, " ", {st, {group, Statements}}, "\n"], State};
@@ -56,12 +59,12 @@ probe_point(Function, State = #gen_state{pid = OSPid})
      insert_args(Function, State)}.
 
 st_body({set, Name, Keys}, State) ->
-    stat_body({sum, Name, Keys, "0"}, State);
+    {stat_body(sum, Name, Keys, "0"), State};
 st_body({count, Name, Keys}, State) ->
-    stat_body({count, Name, Keys, ""}, State);
+    {stat_body(count, Name, Keys, ""), State};
 st_body({Type, Name, Keys, Value}, State)
   when Type == sum; Type == min; Type == max; Type == avg ->
-    stat_body({Type, Name, Keys, {op, Value}}, State);
+    {stat_body(Type, Name, Keys, {op, Value}), State};
 st_body({reset, [H|T]}, State) ->
     {sep([{st_body, {reset, H}} |
           [{align, {st_body, {reset, Name}}} || Name <- T]], ";\n"), State};
@@ -83,10 +86,9 @@ st_body({printf, Format, Args}, State) ->
 st_body(_, _) ->
     false.
 
-stat_body({Type, Name, Keys, Value}, State = #gen_state{stats = Stats}) ->
-    {[$@, ?a2l(Name), "[", sep_t(op, Keys, ", "), "] = ", ?a2l(Type),
-      "(", Value, ")"],
-     State#gen_state{stats = orddict:store(Name, Type, Stats)}}.
+stat_body(Type, Name, Keys, Value) ->
+    [$@, ?a2l(Name), "[", sep_t(op, Keys, ", "), "] = ", ?a2l(Type),
+     "(", Value, ")"].
 
 printa_arg_spec(Arg, Stats) when is_atom(Arg) ->
     true = orddict:is_key(Arg, Stats),

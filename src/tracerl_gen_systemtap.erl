@@ -28,8 +28,19 @@ script(ScriptSrc, Node) ->
     tracerl_gen:script(?MODULE, ScriptSrc, Node).
 
 %%-----------------------------------------------------------------------------
+%% tracerl_gen callbacks
+%%-----------------------------------------------------------------------------
+init_state(State = #gen_state{pid = OSPid}) ->
+    Name = os:cmd(io_lib:format(
+                    "ps -p ~p -o command | tail -n 1 | awk '{print $1}'",
+                    [OSPid])),
+    SState = #sstate{name = re:replace(Name, "\\s*$", "", [{return, list}])},
+    State#gen_state{st = SState}.
+
+%%-----------------------------------------------------------------------------
 %% tracerl_gen callbacks - pass 1: preprocess
 %%-----------------------------------------------------------------------------
+
 pre_st({printa, _Format, Args}, State) when length(Args) =< 1 ->
     {[], State};
 pre_st({printa, _Format, Args},
@@ -47,17 +58,13 @@ pre_st(_, _) ->
 generate(Probes, State) ->
     {[{nop, add_globals, [sep_t(probe, after_probe, Probes, "\n")]}], State}.
 
-init_state(State = #gen_state{pid = OSPid}) ->
-    Name = os:cmd(io_lib:format(
-                    "ps -p ~p -o command | tail -n 1 | awk '{print $1}'",
-                    [OSPid])),
-    SState = #sstate{name = re:replace(Name, "\\s*$", "", [{return, list}])},
-    State#gen_state{st = SState}.
-
-add_globals(_Item, Script, State = #gen_state{stats = [], vars = []}) ->
+add_globals(_, Script, State = #gen_state{stats = [], vars = [],
+                                          st = #sstate{multi_keys = []}}) ->
     {Script, State};
-add_globals(_Item, Script, State = #gen_state{stats = Stats, vars = Vars}) ->
-    {["global ", sep_f(orddict:fetch_keys(Stats) ++ ordsets:to_list(Vars),
+add_globals(_, Script, State = #gen_state{stats = Stats, vars = Vars,
+                                          st = #sstate{multi_keys = MKeys}}) ->
+    {["global ", sep_f(orddict:fetch_keys(Stats) ++ ordsets:to_list(Vars)
+                       ++ [MV || {_MK, MV} <- orddict:to_list(MKeys)],
                        ", ", fun atom_to_list/1),
       "\n" | Script],
      State}.
@@ -95,9 +102,8 @@ probe_point(Function, State = #gen_state{st = SState})
     {["probe process(\"", SState#sstate.name, "\").mark(\"", Function, "\")"],
      insert_args(Function, State)}.
 
-st_body({set, Name, Keys}, State = #gen_state{stats = Stats}) ->
-    {[?a2l(Name), "[", sep_t(op, Keys, ", "), "] = 1"],
-     State#gen_state{stats = orddict:store(Name, {set, length(Keys)}, Stats)}};
+st_body({set, Name, Keys}, State) ->
+    {[?a2l(Name), "[", sep_t(op, Keys, ", "), "] = 1"], State};
 st_body({count, Name, Keys}, State) ->
     stat_body({count, Name, Keys, 1}, State);
 st_body({Type, Name, Keys, Value}, State)
@@ -144,12 +150,10 @@ st_body({printf, Format, Args}, State) ->
 st_body(_, _) ->
     false.
 
-stat_body({Type, Name, Keys, Value}, State = #gen_state{stats = Stats,
-                                                        st = SState}) ->
+stat_body({_Type, Name, Keys, Value}, State = #gen_state{st = SState}) ->
     MVs = get_multi_vals(Name, SState#sstate.multi_keys),
     {[?a2l(Name), "[", sep_t(op, Keys, ", "), "] <<< ", {op, Value} |
-      [["\n", {st, {set, MV, Keys}}] || MV <- MVs]],
-     State#gen_state{stats = orddict:store(Name, {Type, length(Keys)}, Stats)}}.
+      [["\n", {st, {set, MV, Keys}}] || MV <- MVs]], State}.
 
 get_multi_vals(StatName, MKeys) ->
     orddict:fold(fun(MK, MV, MVAcc) ->
@@ -173,7 +177,7 @@ printa_items(Args, Stats) ->
 printa_args_spec(Format, Items, KeyNum) ->
     {ArgsSpec, {_, KeyN}} =
         lists:mapfoldl(
-          fun([$@|_], {[{Name, Type}|Itms], KeyNo}) ->
+          fun([$@|_], {[{Name, Type}|Itms], KeyNo}) when Type /= set ->
                   {["@", ?a2l(Type), "(", ?a2l(Name),
                     "[", sep_keys(KeyNum), "])"],
                    {Itms, KeyNo}};

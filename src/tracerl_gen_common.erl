@@ -40,6 +40,12 @@ pre_st({?op_assign, Name, _Value}, State) ->
     add_var(Name, State);
 pre_st({?op_assign, Name, _Keys, _Value}, State) ->
     add_var(Name, State);
+pre_st({Type, Name, Keys}, State)
+  when Type == set; Type == count ->
+    add_stat(Name, Type, Keys, State);
+pre_st({Type, Name, Keys, _Value}, State)
+  when Type == sum; Type == min; Type == max; Type == avg ->
+    add_stat(Name, Type, Keys, State);
 pre_st(_, State) ->
     {[], State}.
 
@@ -50,6 +56,11 @@ pre_after_st(Item, _Children, State) ->
 
 add_var(Name, State = #gen_state{vars = Vars}) ->
     {[], State#gen_state{vars = ordsets:add_element(Name, Vars)}}.
+
+add_stat(Name, Type, Keys, State = #gen_state{stats = Stats}) ->
+    Value = {Type, length(Keys)},
+    %% TODO assert type
+    {[], State#gen_state{stats = orddict:store(Name, Value, Stats)}}.
 
 format_terms(Statements) ->
     lists:flatmap(fun({print_term, Term})        -> format_term(Term, []);
