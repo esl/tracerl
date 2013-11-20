@@ -43,14 +43,23 @@ init_state(State = #gen_state{pid = OSPid}) ->
 
 pre_st({printa, _Format, Args}, State) when length(Args) =< 1 ->
     {[], State};
-pre_st({printa, _Format, Args},
-       State = #gen_state{st = SState = #sstate{multi_keys = MKeys0}}) ->
-    MKey = lists:sort(Args),
-    MV = sep_f(MKey, "__", fun atom_to_list/1),
-    MKeys = orddict:store(MKey, list_to_atom(lists:flatten(MV)), MKeys0),
-    {[], State#gen_state{st = SState#sstate{multi_keys = MKeys}}};
+pre_st({printa, Format, Args},
+       State = #gen_state{st = SState = #sstate{multi_keys = MKeys}}) ->
+    case printa_key_num(Format) of
+        0 ->
+            {[], State};
+        _ ->
+            MKey = lists:sort(Args),
+            MV = sep_f(MKey, "__", fun atom_to_list/1),
+            MKs = orddict:store(MKey, list_to_atom(lists:flatten(MV)), MKeys),
+            {[], State#gen_state{st = SState#sstate{multi_keys = MKs}}}
+    end;
 pre_st(_, _) ->
     false.
+
+printa_key_num(Format) ->
+    length(lists:filter(fun([C|_]) -> C /= $@ end,
+                        tl(re:split(Format, "%", [{return,list}])))).
 
 %%-----------------------------------------------------------------------------
 %% tracerl_gen callbacks - pass 2: generate
@@ -134,15 +143,8 @@ st_body({printa, Format, Args}, State = #gen_state{stats = Stats,
     {Items, KeyNum} = printa_items(Args, Stats),
     ArgSpec = printa_args_spec(Format, Items, KeyNum),
     PrintfFormat = re:replace(Format, "@", "", [{return, list}, global]),
-    {["foreach([", sep_keys(KeyNum), "] in ",
-      ?a2l(case Args of
-               [Arg] -> Arg;
-               _ -> orddict:fetch(lists:sort(Args), SState#sstate.multi_keys)
-           end),
-      ")\n",
-      {indent, outdent,
-       [{align, ["printf(", sep([{op,PrintfFormat} | ArgSpec], ", "), ")"]}]}],
-     State};
+    Printf = ["printf(", sep([{op, PrintfFormat} | ArgSpec], ", "), ")"],
+    {printa_body(KeyNum, Args, Printf, SState#sstate.multi_keys), State};
 st_body({printf, Format}, State) ->
     st_body({printf, Format, []}, State);
 st_body({printf, Format, Args}, State) ->
@@ -152,8 +154,11 @@ st_body(_, _) ->
 
 stat_body({_Type, Name, Keys, Value}, State = #gen_state{st = SState}) ->
     MVs = get_multi_vals(Name, SState#sstate.multi_keys),
-    {[?a2l(Name), "[", sep_t(op, Keys, ", "), "] <<< ", {op, Value} |
+    {[?a2l(Name), key_expr(Keys), " <<< ", {op, Value} |
       [["\n", {st, {set, MV, Keys}}] || MV <- MVs]], State}.
+
+key_expr([])   -> "";
+key_expr(Keys) -> ["[", sep_t(op, Keys, ", "), "]"].
 
 get_multi_vals(StatName, MKeys) ->
     orddict:fold(fun(MK, MV, MVAcc) ->
@@ -178,8 +183,8 @@ printa_args_spec(Format, Items, KeyNum) ->
     {ArgsSpec, {_, KeyN}} =
         lists:mapfoldl(
           fun([$@|_], {[{Name, Type}|Itms], KeyNo}) when Type /= set ->
-                  {["@", ?a2l(Type), "(", ?a2l(Name),
-                    "[", sep_keys(KeyNum), "])"],
+                  {["@", ?a2l(Type),
+                    "(", ?a2l(Name), printa_key_expr(KeyNum), ")"],
                    {Itms, KeyNo}};
              (_, {Itms, KeyNo}) when KeyNo =< KeyNum ->
                   {["key", ?i2l(KeyNo)],
@@ -188,8 +193,23 @@ printa_args_spec(Format, Items, KeyNum) ->
     KeyN = KeyNum + 1,
     ArgsSpec.
 
-sep_keys(KeyNum) ->
-    sep([["key", ?i2l(KN)] || KN <- lists:seq(1, KeyNum)], ",").
+printa_key_expr(0) -> "";
+printa_key_expr(KeyNum) ->
+    ["[", sep([["key", ?i2l(KN)] || KN <- lists:seq(1, KeyNum)], ","), "]"].
+
+printa_body(0, _Args, Printf, _MKeys) -> Printf;
+printa_body(KeyNum, Args, Printf, MKeys) ->
+    ["foreach(", printa_body_key_expr(KeyNum), " in ",
+     ?a2l(case Args of
+              [Arg] -> Arg;
+              _ -> orddict:fetch(lists:sort(Args), MKeys)
+          end),
+     ")\n",
+     {indent, outdent, [{align, Printf}]}].
+
+printa_body_key_expr(1) -> "key1";
+printa_body_key_expr(KeyNum) when KeyNum > 1 ->
+    ["[", sep([["key", ?i2l(KN)] || KN <- lists:seq(1, KeyNum)], ","), "]"].
 
 op({arg_str, N}, State) when is_integer(N), N > 0 ->
     {["user_string($arg",?i2l(N),")"], State};

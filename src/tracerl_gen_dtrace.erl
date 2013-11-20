@@ -87,8 +87,11 @@ st_body(_, _) ->
     false.
 
 stat_body(Type, Name, Keys, Value) ->
-    [$@, ?a2l(Name), "[", sep_t(op, Keys, ", "), "] = ", ?a2l(Type),
+    [$@, ?a2l(Name), key_expr(Type, Keys), " = ", ?a2l(Type),
      "(", Value, ")"].
+
+key_expr(Type, []) when Type /= set -> "";
+key_expr(_Type, Keys) -> ["[", sep_t(op, Keys, ", "), "]"].
 
 printa_arg_spec(Arg, Stats) when is_atom(Arg) ->
     true = orddict:is_key(Arg, Stats),

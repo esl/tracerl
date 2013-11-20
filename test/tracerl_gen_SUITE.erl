@@ -255,12 +255,15 @@ message_receive_stats_test(_Config) ->
     [S1, S2, S3, S4, S5] = [?msize(M) || M <- Messages],
     {Min1, Avg1, Max1, Total1} = {S1, (S1+S2+S3) div 3, S3, S1+S2+S3},
     {Min2, Avg2, Max2, Total2} = {S5, (S5+S4) div 2, S4, S4+S5},
+    {Min, Avg, Max, Total} = {S1, (S1+S2+S3+S4+S5) div 5, S3, S1+S2+S3+S4+S5},
     ?expect({line, ["pid", Receiver1, "received", 3, "messages:",
                     "min", Min1, "avg", Avg1,
                     "max", Max1, "total", Total1]}),
     ?expect({line, ["pid", Receiver2, "received", 2, "messages:",
                     "min", Min2, "avg", Avg2,
-                    "max", Max2, "total", Total2]}).
+                    "max", Max2, "total", Total2]}),
+    ?expect({line, ["total", "received", 5, "messages:",
+                    "min", Min, "avg", Avg, "max", Max, "total", Total]}).
 
 %%%-------------------------------------------------------------------
 %%% Dyntrace scripts
@@ -401,8 +404,17 @@ message_receive_stats_script(Receivers) ->
        {avg, avg_size, [pid], size},
        {min, min_size, [pid], size},
        {max, max_size, [pid], size},
-       {sum, total_size, [pid], size}]},
+       {sum, total_size, [pid], size},
+       {count, recv_total, []},
+       {avg, avg_size_total, [], size},
+       {min, min_size_total, [], size},
+       {max, max_size_total, [], size},
+       {sum, total_size_total, [], size}]},
      {probe, 'end',
       [{printa, "pid %s received %@d messages: "
         "min %@d avg %@d max %@d total %@d\n",
-        [recv, min_size, avg_size, max_size, total_size]}]}].
+        [recv, min_size, avg_size, max_size, total_size]},
+       {printa, "total received %@d messages: "
+        "min %@d avg %@d max %@d total %@d\n",
+        [recv_total, min_size_total, avg_size_total, max_size_total,
+         total_size_total]}]}].
