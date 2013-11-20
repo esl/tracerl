@@ -36,6 +36,15 @@ pre_after_probe({probe, Point, Predicate, _}, Children, State) ->
 pre_after_probe({probe, Point, _}, Children, State) ->
     {{probe, Point, merge_printfs(Children)}, State}.
 
+pre_st({printa, _Format, Args}, State = #gen_state{stats = Stats}) ->
+    [true = orddict:is_key(Arg, Stats) || Arg <- Args],
+    {[], State};
+pre_st({reset, Args}, State = #gen_state{stats = Stats}) when is_list(Args) ->
+    [true = orddict:is_key(Arg, Stats) || Arg <- Args],
+    {[], State};
+pre_st({reset, Arg}, State = #gen_state{stats = Stats}) ->
+    true = orddict:is_key(Arg, Stats),
+    {[], State};
 pre_st(_, State) ->
     {[], State}.
 

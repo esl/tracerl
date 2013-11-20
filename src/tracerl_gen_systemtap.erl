@@ -40,11 +40,11 @@ init_state(State = #gen_state{pid = OSPid}) ->
 %%-----------------------------------------------------------------------------
 %% tracerl_gen callbacks - pass 1: preprocess
 %%-----------------------------------------------------------------------------
-
-pre_st({printa, _Format, Args}, State) when length(Args) =< 1 ->
-    {[], State};
 pre_st({printa, Format, Args},
-       State = #gen_state{st = SState = #sstate{multi_keys = MKeys}}) ->
+       State = #gen_state{stats = Stats,
+                          st = SState = #sstate{multi_keys = MKeys}})
+  when length(Args) > 1 ->
+    [true = orddict:is_key(Arg, Stats) || Arg <- Args],
     case printa_key_num(Format) of
         0 ->
             {[], State};
