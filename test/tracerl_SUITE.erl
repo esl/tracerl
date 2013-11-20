@@ -41,7 +41,8 @@ groups() ->
        process_scheduling_test,
        message_test,
        message_self_test,
-       user_trace_test]},
+       user_trace_test,
+       user_trace_n_test]},
      {dist, [],
       [message_dist_test]}].
 
@@ -188,6 +189,19 @@ user_trace_test(_Config) ->
                     "yet", "another", "probe", ""]}),
     ?expect_not({line, _}).
 
+user_trace_n_test(_Config) ->
+    DP = start_trace(user_trace_n_script()),
+    ?wait_for({line, ["start"]}),
+    dyntrace:pn(1, 1, 2, 3, "my", "probe"),
+    dyntrace:put_tag("tag123"),
+    dyntrace:pn(777, "yet", "another", "probe"),
+    tracerl:stop(DP),
+    Self = self(),
+    ?wait_for(eof),
+    ?expect({line, [Self, "", 1, 2, 3, "my", "probe"]}),
+    ?expect({line, [Self, "tag123", "yet", "another", "probe"]}),
+    ?expect_not({line, _}).
+
 %%%-------------------------------------------------------------------
 %%% Test helpers
 %%%-------------------------------------------------------------------
@@ -286,4 +300,15 @@ user_trace_script() ->
      {probe, "user_trace-i4s4",
       [{printf, "%s %s %d %d %d %d %s %s %s %s\n",
         [pid, tag, i1, i2, i3, i4, s1, s2, s3, s4]}]}
+    ].
+
+user_trace_n_script() ->
+    [{probe, 'begin',
+      [{printf, "start\n"}]},
+     {probe, "user_trace-n1",
+      [{printf, "%s %s %d %d %d %s %s\n",
+        [pid, tag, i1, i2, i3, s1, s2]}]},
+     {probe, "user_trace-n777",
+      [{printf, "%s %s %s %s %s\n",
+        [pid, tag, s1, s2, s3]}]}
     ].
