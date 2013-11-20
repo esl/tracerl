@@ -13,8 +13,8 @@
 -import(tracerl_gen_util, [sep/2, sep_t/3, tag/2, tag/3, sep_f/3]).
 
 %% pass 1
--export([preprocess/2, pre_probe/2, pre_after_probe/3,
-         pre_st/2, pre_after_st/3]).
+-export([preprocess/2, pre_probe/2, pre_after_probe/3, pre_st/2,
+         pre_after_st/3]).
 
 %% pass 2
 -export([after_probe/3, st/2, st_body/2, op/2, nop/2, nop/3,
@@ -36,31 +36,39 @@ pre_after_probe({probe, Point, Predicate, _}, Children, State) ->
 pre_after_probe({probe, Point, _}, Children, State) ->
     {{probe, Point, merge_printfs(Children)}, State}.
 
-pre_st({?op_assign, Name, _Value}, State) ->
-    add_var(Name, State);
-pre_st({?op_assign, Name, _Keys, _Value}, State) ->
-    add_var(Name, State);
-pre_st({Type, Name, Keys}, State)
-  when Type == set; Type == count ->
-    add_stat(Name, Type, Keys, State);
-pre_st({Type, Name, Keys, _Value}, State)
-  when Type == sum; Type == min; Type == max; Type == avg ->
-    add_stat(Name, Type, Keys, State);
 pre_st(_, State) ->
     {[], State}.
 
-pre_after_st(Item, _Children, State) ->
+pre_after_st(Item = {?op_assign, Name, _Value}, _, State) ->
+    {Item, add_var(Name, State)};
+pre_after_st(Item = {?op_assign, Name, _Keys, _Value}, _, State) ->
+    {Item, add_var(Name, State)};
+pre_after_st({count, Name}, _, State) ->
+    pre_after_st({count, Name, []}, [], State);
+pre_after_st(Item = {Type, Name, Keys}, _, State)
+  when Type == set; Type == count ->
+    {Item, add_stat(Name, Type, Keys, State)};
+pre_after_st({Type, Name, Value}, _, State)
+  when Type == sum; Type == min; Type == max; Type == avg ->
+    pre_after_st({Type, Name, [], Value}, [], State);
+pre_after_st(Item = {Type, Name, Keys, _Value}, _, State)
+  when Type == sum; Type == min; Type == max; Type == avg ->
+    {Item, add_stat(Name, Type, Keys, State)};
+pre_after_st(Item, _, State) ->
     {Item, State}.
 
 %% helpers
 
 add_var(Name, State = #gen_state{vars = Vars}) ->
-    {[], State#gen_state{vars = ordsets:add_element(Name, Vars)}}.
+    State#gen_state{vars = ordsets:add_element(Name, Vars)}.
 
 add_stat(Name, Type, Keys, State = #gen_state{stats = Stats}) ->
-    Value = {Type, length(Keys)},
-    %% TODO assert type
-    {[], State#gen_state{stats = orddict:store(Name, Value, Stats)}}.
+    StatVal = {Type, length(Keys)},
+    case orddict:find(Name, Stats) of
+        error -> ok;
+        {ok, StatVal} -> ok
+    end,
+    State#gen_state{stats = orddict:store(Name, StatVal, Stats)}.
 
 format_terms(Statements) ->
     lists:flatmap(fun({print_term, Term})        -> format_term(Term, []);
