@@ -67,5 +67,16 @@ args(Point) when Point == "message-queued";
     [{pid, {arg_str, 1}},
      {size, {arg, 2}},
      {queue_length, {arg, 3}}];
+args("user_trace-i4s4") ->
+    [{pid, {arg_str, 1}},
+     {tag, {arg_str, 2, ""}},
+     {i1, {arg, 3}},
+     {i2, {arg, 4}},
+     {i3, {arg, 5}},
+     {i4, {arg, 6}},
+     {s1, {arg_str, 7, ""}},
+     {s2, {arg_str, 8, ""}},
+     {s3, {arg_str, 9, ""}},
+     {s4, {arg_str, 10, ""}}];
 args(_) ->
     [].

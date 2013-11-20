@@ -182,6 +182,13 @@ op({Op, Operand}, State) when ?is_logic1(Op); ?is_arith1(Op) ->
     {[?a2l(Op), "(", {op, Operand}, ")"], State};
 op({Op, Operand1, Operand2}, State) when ?is_cmp(Op) ->
     {[{op, Operand1}, " ", ?a2l(Op), " ", {op, Operand2}], State};
+op({Op, Operand1, Operand2, Operand3}, State) when ?is_ternary(Op) ->
+    {["(", {op, Operand1}, ") ? (", {op, Operand2}, ") : (",
+      {op, Operand3}, ")"], State};
+op({arg_str, N, Default}, State) ->
+    {[{op, {'?:', {'==', {arg, N}, 'NULL'}, Default, {arg_str, N}}}], State};
+op('NULL', State) ->
+    {"NULL", State};
 op(Name, State = #gen_state{args = Args, vars = Vars})
   when is_atom(Name) ->
     {case orddict:find(Name, Args) of
@@ -196,6 +203,8 @@ op({Name, Keys}, State = #gen_state{vars = Vars}) when is_atom(Name) ->
     {[?a2l(Name), "[", sep_t(op, Keys, ", "), "]"], State};
 op(Pid, State = #gen_state{node = Node}) when is_pid(Pid) ->
     {["\"", ?p2l(Node, Pid), "\""], State};
+op("", State) ->
+    {"\"\"", State};
 op(Str, State) when is_integer(hd(Str)) ->
     {io_lib:format("~p", [Str]), State};
 op(Int, State) when is_integer(Int) ->

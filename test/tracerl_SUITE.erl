@@ -40,7 +40,8 @@ groups() ->
       [process_spawn_exit_test,
        process_scheduling_test,
        message_test,
-       message_self_test]},
+       message_self_test,
+       user_trace_test]},
      {dist, [],
       [message_dist_test]}].
 
@@ -173,6 +174,20 @@ message_dist_test(Config) ->
     ?wait_for(eof),
     ?expect_not({line, _}).
 
+user_trace_test(_Config) ->
+    DP = start_trace(user_trace_script()),
+    ?wait_for({line, ["start"]}),
+    dyntrace:p(1, 2, 3, "my", "probe"),
+    dyntrace:put_tag("tag123"),
+    dyntrace:p("yet", "another", "probe"),
+    tracerl:stop(DP),
+    Self = self(),
+    ?wait_for(eof),
+    ?expect({line, [Self, "", 1, 2, 3, 0, "my", "probe", "", ""]}),
+    ?expect({line, [Self, "tag123", 0, 0, 0, 0,
+                    "yet", "another", "probe", ""]}),
+    ?expect_not({line, _}).
+
 %%%-------------------------------------------------------------------
 %%% Test helpers
 %%%-------------------------------------------------------------------
@@ -264,3 +279,11 @@ message_script(Receivers, Tag) ->
 
 pid_pred(Name, Pids) ->
     {'||', [{'==', Name, Pid} || Pid <- Pids]}.
+
+user_trace_script() ->
+    [{probe, 'begin',
+      [{printf, "start\n"}]},
+     {probe, "user_trace-i4s4",
+      [{printf, "%s %s %d %d %d %d %s %s %s %s\n",
+        [pid, tag, i1, i2, i3, i4, s1, s2, s3, s4]}]}
+    ].

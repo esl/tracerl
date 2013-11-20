@@ -46,3 +46,7 @@
 
 -define(is_cmp(Op),
         Op == '=='; Op == '<='; Op == '>='; Op == '>'; Op == '<'; Op == '!=').
+
+-define(is_ternary(Op),
+        Op == '?:').
+
