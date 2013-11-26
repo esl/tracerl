@@ -41,6 +41,7 @@ groups() ->
        process_scheduling_test,
        message_test,
        message_self_test,
+       copy_test,
        user_trace_test,
        user_trace_n_test]},
      {dist, [],
@@ -145,11 +146,11 @@ message_dist_test(Config) ->
     [SlaveStr, NodeStr] = ["'" ++ L ++ "'" || L <- [?a2l(Slave), ?a2l(node())]],
     RelayStr = "{relay," ++ SlaveStr ++ "}",
     DP = start_trace(message_script([Sender, Receiver, RelayStr])),
+    ?wait_for({line, ["start"]}),
     SlaveDP = start_trace(message_script([Sender, Receiver], "slave-"), Slave),
+    ?wait_for({line, ["slave-start"]}),
     {Size1, Size2} = {?msize(?msg1), ?msize(?msg2)},
     Self = self(),
-    ?wait_for({line, ["start"]}),
-    ?wait_for({line, ["slave-start"]}),
 
     Sender ! ?msg2,
     ?wait_for({line, ["slave-sent-remote", Sender, _, Receiver, Size2]}),
@@ -172,6 +173,20 @@ message_dist_test(Config) ->
     ?wait_for(eof),
     ?wait_for(eof),
     ?expect_not({line, _}).
+
+copy_test(_Config) ->
+    L = lists:seq(1, 10000),
+    Size = ?msize(L),
+    DP = start_trace(copy_script(Size)),
+    ?wait_for({line, ["start"]}),
+    spawn(fun() -> _A = L end),
+    ?wait_for({line, ["struct", _N]}, ?DEFAULT_TIMEOUT, _N >= Size),
+    put(data, L),
+    Self = self(),
+    process_info(Self),
+    ?wait_for({line, ["object", Self, _M]}, ?DEFAULT_TIMEOUT, _M >= Size),
+    tracerl:stop(DP),
+    ?wait_for(eof).
 
 user_trace_test(_Config) ->
     DP = start_trace(user_trace_script()),
@@ -287,6 +302,15 @@ message_script(Receivers, Tag) ->
       [{printf, Tag ++ "queued %s %d %d\n", [pid, size, queue_length]}]},
      {probe, "message-receive", pid_pred(pid, Receivers),
       [{printf, Tag ++ "received %s %d %d\n", [pid, size, queue_length]}]}
+    ].
+
+copy_script(MinSize) ->
+    [{probe, 'begin',
+      [{printf, "start\n"}]},
+     {probe,"copy-struct", {'>=', size, MinSize},
+      [{printf, "struct %d\n", [size]}]},
+     {probe,"copy-object", {'>=', size, MinSize},
+      [{printf, "object %s %d\n", [pid, size]}]}
     ].
 
 pid_pred(Name, Pids) ->

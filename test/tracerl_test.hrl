@@ -6,6 +6,7 @@
 %%% @end
 %%% Created : 12 Aug 2013 by pawel.chrzaszcz@erlang-solutions.com
 %%%-------------------------------------------------------------------
+-define(DEFAULT_TIMEOUT, 10000).
 
 -define(msize(Msg), erts_debug:flat_size(Msg)).
 
@@ -18,8 +19,17 @@
                 % Prevents unbound variables in Pattern from being unsafe
         end).
 
+-define(wait_for(Pattern, Timeout, Guard),
+        receive
+            Pattern when Guard ->
+                ok
+        after Timeout ->
+                Pattern = erlang:error(not_found)
+                % Prevents unbound variables in Pattern from being unsafe
+        end).
+
 -define(expect(Pattern), ?wait_for(Pattern, 0)).
--define(wait_for(Pattern), ?wait_for(Pattern, 10000)).
+-define(wait_for(Pattern), ?wait_for(Pattern, ?DEFAULT_TIMEOUT)).
 -define(expect_not(Pattern),
         receive
             Pattern ->
