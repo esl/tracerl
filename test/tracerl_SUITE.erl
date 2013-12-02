@@ -19,7 +19,8 @@
 
 -import(tracerl_test_util, [all_if_dyntrace/1,
                             start_trace/1, start_trace/2,
-                            send_all/1, receive_all/1]).
+                            send_all/1, receive_all/1,
+                            test_function/0]).
 
 -define(msg1, "message").
 -define(msg2, "other message").
@@ -42,6 +43,7 @@ groups() ->
        message_test,
        message_self_test,
        copy_test,
+       function_test,
        user_trace_test,
        user_trace_n_test]},
      {dist, [],
@@ -188,6 +190,31 @@ copy_test(_Config) ->
     tracerl:stop(DP),
     ?wait_for(eof).
 
+function_test(_Config) ->
+    {P, Ref} = spawn_monitor(fun() ->
+                                     receive start -> ok end,
+                                     test_function()
+                             end),
+    DP = start_trace(function_script([P])),
+    ?wait_for({line, ["start"]}),
+    P ! start,
+    receive {'DOWN', Ref, process, _, normal} -> ok end,
+    ok = tracerl:stop(DP),
+    ?wait_for(eof),
+    FunStr = "tracerl_test_util:test_function",
+    Str0 = FunStr ++ "/0",
+    [Str1, Str2] = [FunStr ++ "_" ++ ?i2l(I) ++ "/" ++ ?i2l(I)|| I <- [1, 2]],
+    % Notes:
+    %   - return probes show the enclosing (destination) function
+    %   - return probes do not work for tail calls (and probably some other
+    %       kinds of calls as well)
+    ?expect({line, ["call", "global", P, Str0, 0]}),
+    ?expect({line, ["call", "global", P, Str1, 0]}),
+    ?expect({line, ["return", P, Str0, 0]}),
+    ?expect({line, ["call", "local", P, Str2, 0]}),
+    ?expect({line, ["return", P, Str0, 0]}),
+    ?expect({line, ["call", "local", P, Str2, 0]}).
+
 user_trace_test(_Config) ->
     DP = start_trace(user_trace_script()),
     ?wait_for({line, ["start"]}),
@@ -307,10 +334,21 @@ message_script(Receivers, Tag) ->
 copy_script(MinSize) ->
     [{probe, 'begin',
       [{printf, "start\n"}]},
-     {probe,"copy-struct", {'>=', size, MinSize},
+     {probe, "copy-struct", {'>=', size, MinSize},
       [{printf, "struct %d\n", [size]}]},
-     {probe,"copy-object", {'>=', size, MinSize},
+     {probe, "copy-object", {'>=', size, MinSize},
       [{printf, "object %s %d\n", [pid, size]}]}
+    ].
+
+function_script(Pids) ->
+    [{probe, 'begin',
+      [{printf, "start\n"}]},
+     {probe, "local-function-entry", pid_pred(pid, Pids),
+      [{printf, "call local %s %s %d\n", [pid, mfa, depth]}]},
+     {probe, "global-function-entry", pid_pred(pid, Pids),
+      [{printf, "call global %s %s %d\n", [pid, mfa, depth]}]},
+     {probe, "function-return", pid_pred(pid, Pids),
+      [{printf, "return %s %s %d\n", [pid, mfa, depth]}]}
     ].
 
 pid_pred(Name, Pids) ->

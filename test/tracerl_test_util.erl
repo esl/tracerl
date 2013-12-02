@@ -11,7 +11,15 @@
 -include("tracerl_util.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--compile(export_all).
+-export([all_if_dyntrace/1,
+         start_trace/1, start_trace/2,
+         start_term_trace/1, start_term_trace/2]).
+
+%% test helpers
+-export([send_n/2, receive_n/2,
+         send_all/1, receive_all/1,
+         ring_start/1, ring_stop/1, ring_send/3,
+         test_function/0, test_function_1/1]).
 
 all_if_dyntrace(All) ->
     case erlang:system_info(dynamic_trace) of
@@ -39,11 +47,11 @@ start_term_trace(ScriptSrc, Node) ->
     ct:log(gen_server:call(DP, get_script)),
     DP.
 
-ensure_stop_trace() ->
-    case whereis(tracerl_process) of
-        undefined -> ok;
-        DP        -> tracerl:stop(DP)
-    end.
+%% ensure_stop_trace() ->
+%%     case whereis(tracerl_process) of
+%%         undefined -> ok;
+%%         DP        -> tracerl:stop(DP)
+%%     end.
 
 collect(Dest, Node, Output) ->
     process_flag(trap_exit, true),
@@ -143,7 +151,19 @@ ring_proc() ->
     end.
 
 ring_send(Ps, MsgNum, Pid) ->
+    sets:from_list([]),
     Ref = make_ref(),
     lists:last(Ps) ! lists:flatten([lists:duplicate(MsgNum, Ps),
                                     {notify, Pid, Ref}]),
     Ref.
+
+test_function() ->
+    A = ?MODULE:test_function_1(123),
+    {B, C} = test_function_2(A, b),
+    test_function_2(C, B).
+
+test_function_1(A) ->
+    A.
+
+test_function_2(A, B) ->
+    {A, B}.

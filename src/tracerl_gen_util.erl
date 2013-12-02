@@ -72,6 +72,12 @@ args("copy-struct") ->
 args("copy-object") ->
     [{pid, {arg_str, 1}},
      {size, {arg, 2}}];
+args(Point) when Point == "local-function-entry";
+                 Point == "global-function-entry";
+                 Point == "function-return" ->
+    [{pid, {arg_str, 1}},
+     {mfa, {arg_str, 2}},
+     {depth, {arg, 3}}];
 args("user_trace-" ++ _) ->
     [{pid, {arg_str, 1}},
      {tag, {arg_str, 2, ""}},
