@@ -99,7 +99,7 @@ process_spawn_exit_test(_Config) ->
     DP = start_trace(process_spawn_exit_script()),
     ?wait_for({line, ["start"]}),
     Pid = process_spawn_exit_scenario(),
-    tracerl:stop(DP),
+    tracerl_process:stop(DP),
     ?wait_for({line, ["spawn", Pid, "erlang:apply/2"]}),
     ?wait_for({line, ["exit", Pid, "normal"]}),
     ?wait_for(eof),
@@ -109,7 +109,7 @@ process_scheduling_test(_Config) ->
     DP = start_trace(process_scheduling_script()),
     ?wait_for({line, ["start"]}),
     Pid = process_scheduling_scenario(),
-    tracerl:stop(DP),
+    tracerl_process:stop(DP),
     ?wait_for({line, ["schedule", Pid]}),
     ?wait_for({line, ["hibernate", Pid,
                       "tracerl_SUITE:process_scheduling_f/0"]}),
@@ -127,7 +127,7 @@ message_test(_Config) ->
     ?wait_for({line, ["start"]}),
     Sender ! {start, Receiver},
     receive {'DOWN', Ref, process, Receiver, normal} -> ok end,
-    tracerl:stop(DP),
+    tracerl_process:stop(DP),
     check_local_message(Sender, Receiver).
 
 message_self_test(_Config) ->
@@ -139,7 +139,7 @@ message_self_test(_Config) ->
     ?wait_for({line, ["start"]}),
     Pid ! {start, Pid},
     receive {'DOWN', Ref, process, Pid, normal} -> ok end,
-    tracerl:stop(DP),
+    tracerl_process:stop(DP),
     check_self_message(Pid).
 
 message_dist_test(Config) ->
@@ -172,8 +172,8 @@ message_dist_test(Config) ->
     ?expect({line, ["sent-remote", Self, SlaveStr, RelayStr, Size1]}),
 
     receive {'DOWN', Ref, process, _, normal} -> ok end,
-    tracerl:stop(DP),
-    tracerl:stop(SlaveDP),
+    tracerl_process:stop(DP),
+    tracerl_process:stop(SlaveDP),
     ?wait_for(eof),
     ?wait_for(eof),
     ?expect_not({line, _}).
@@ -189,7 +189,7 @@ copy_test(_Config) ->
     Self = self(),
     process_info(Self),
     ?wait_for({line, ["object", Self, _M]}, ?DEFAULT_TIMEOUT, _M >= Size),
-    tracerl:stop(DP),
+    tracerl_process:stop(DP),
     ?wait_for(eof).
 
 function_test(_Config) ->
@@ -201,7 +201,7 @@ function_test(_Config) ->
     ?wait_for({line, ["start"]}),
     P ! start,
     receive {'DOWN', Ref, process, _, normal} -> ok end,
-    ok = tracerl:stop(DP),
+    ok = tracerl_process:stop(DP),
     ?wait_for(eof),
     FunStr = "tracerl_test_util:test_function",
     Str0 = FunStr ++ "/0",
@@ -229,7 +229,7 @@ user_trace_test(_Config) ->
     dyntrace:p(1, 2, 3, "my", "probe"),
     dyntrace:put_tag("tag123"),
     dyntrace:p("yet", "another", "probe"),
-    tracerl:stop(DP),
+    tracerl_process:stop(DP),
     Self = self(),
     ?wait_for(eof),
     ?expect({line, [Self, "", 1, 2, 3, 0, "my", "probe", "", ""]}),
@@ -243,7 +243,7 @@ user_trace_n_test(_Config) ->
     dyntrace:pn(1, 1, 2, 3, "my", "probe"),
     dyntrace:put_tag("tag123"),
     dyntrace:pn(777, "yet", "another", "probe"),
-    tracerl:stop(DP),
+    tracerl_process:stop(DP),
     Self = self(),
     ?wait_for(eof),
     ?expect({line, [Self, "", 1, 2, 3, "my", "probe"]}),
@@ -317,7 +317,7 @@ driver_test_scenario(Name, OutputF) ->
     ?wait_for({line, ["stop", Pid, Name, Port]}),
     ok = test_driver:unload(Name),
     ?wait_for({line, ["finish", Name]}),
-    ok = tracerl:stop(DP),
+    ok = tracerl_process:stop(DP),
     ?wait_for(eof),
     ?expect_not({line, _}).
 

@@ -2,5 +2,6 @@
  [
   {description, "Dynamic tracing utilities and tests"},
   {vsn, "0.1"},
-  {registered, []}
+  {registered, []},
+  {mod, {tracerl_app, []}}
  ]}.

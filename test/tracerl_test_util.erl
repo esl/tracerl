@@ -33,7 +33,7 @@ start_trace(ScriptSrc) ->
 start_trace(ScriptSrc, Node) ->
     Self = self(),
     Collector = proc_lib:spawn_link(fun() -> collect(Self, Node, []) end),
-    {ok, DP} = tracerl:start_link(ScriptSrc, Node, Collector),
+    {ok, DP} = tracerl_process:start_link(ScriptSrc, Node, Collector),
     ct:log(gen_server:call(DP, get_script)),
     DP.
 
@@ -43,7 +43,7 @@ start_term_trace(ScriptSrc) ->
 start_term_trace(ScriptSrc, Node) ->
     Self = self(),
     Collector = proc_lib:spawn_link(fun() -> collect_terms(Self, []) end),
-    {ok, DP} = tracerl:start_link(ScriptSrc, Node, Collector, [term]),
+    {ok, DP} = tracerl_process:start_link(ScriptSrc, Node, Collector, [term]),
     ct:log(gen_server:call(DP, get_script)),
     DP.
 

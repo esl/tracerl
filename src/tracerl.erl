@@ -8,16 +8,13 @@
 %%%-------------------------------------------------------------------
 -module(tracerl).
 
--export([start_link/3, start_link/4, stop/1]).
+-export([start_trace/3, start_trace/4, stop_trace/1]).
 
-start_link(ScriptSrc, Node, PidOrHandler) ->
-    start_link(ScriptSrc, Node, PidOrHandler, []).
+start_trace(ScriptSrc, Node, PidOrHandler) ->
+    start_trace(ScriptSrc, Node, PidOrHandler, []).
 
-start_link(ScriptSrc, Node, Pid, Options) when is_pid(Pid) ->
-    Handler = fun(Msg) -> Pid ! Msg end,
-    tracerl_process:start_link(ScriptSrc, Node, Handler, Options);
-start_link(ScriptSrc, Node, Handler, Options) when is_function(Handler) ->
-    tracerl_process:start_link(ScriptSrc, Node, Handler, Options).
+start_trace(ScriptSrc, Node, PidOrHandler, Options) ->
+    tracerl_sup:start_child(ScriptSrc, Node, PidOrHandler, Options).
 
-stop(Pid) ->
+stop_trace(Pid) ->
     tracerl_process:stop(Pid).

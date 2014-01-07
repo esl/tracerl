@@ -11,7 +11,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/4, stop/1]).
+-export([start_link/3, start_link/4, stop/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -35,7 +35,13 @@
 %% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start_link(ScriptSrc, Node, Handler, Options) ->
+start_link(ScriptSrc, Node, Pid) ->
+    start_link(ScriptSrc, Node, Pid, []).
+
+start_link(ScriptSrc, Node, Pid, Options) when is_pid(Pid) ->
+    Handler = fun(Msg) -> Pid ! Msg end,
+    start_link(ScriptSrc, Node, Handler, Options);
+start_link(ScriptSrc, Node, Handler, Options) when is_function(Handler) ->
     F = case lists:member(term, Options) of
             true  -> tracerl_util:term_handler(Handler);
             false -> Handler
