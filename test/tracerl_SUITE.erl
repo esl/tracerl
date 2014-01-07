@@ -44,6 +44,8 @@ groups() ->
        message_self_test,
        copy_test,
        function_test,
+       driver_test,
+       driver_outputv_test,
        user_trace_test,
        user_trace_n_test]},
      {dist, [],
@@ -206,14 +208,20 @@ function_test(_Config) ->
     [Str1, Str2] = [FunStr ++ "_" ++ ?i2l(I) ++ "/" ++ ?i2l(I)|| I <- [1, 2]],
     % Notes:
     %   - return probes show the enclosing (destination) function
-    %   - return probes do not work for tail calls (and probably some other
-    %       kinds of calls as well)
+    %   - return probes do not work for tail calls
+    %       (and some other kinds of calls as well)
     ?expect({line, ["call", "global", P, Str0, 0]}),
     ?expect({line, ["call", "global", P, Str1, 0]}),
     ?expect({line, ["return", P, Str0, 0]}),
     ?expect({line, ["call", "local", P, Str2, 0]}),
     ?expect({line, ["return", P, Str0, 0]}),
     ?expect({line, ["call", "local", P, Str2, 0]}).
+
+driver_test(_Config) ->
+    driver_test_scenario("test_drv", "output").
+
+driver_outputv_test(_Config) ->
+    driver_test_scenario("test_outputv_drv", "outputv").
 
 user_trace_test(_Config) ->
     DP = start_trace(user_trace_script()),
@@ -288,6 +296,31 @@ check_local_message(Sender, Receiver) ->
     ?wait_for(eof),
     ?expect_not({line, _}).
 
+driver_test_scenario(Name, OutputF) ->
+    DP = start_trace(driver_script([Name])),
+    ?wait_for({line, ["start"]}),
+    ok = test_driver:load(Name),
+    ?wait_for({line, ["init", Name, _, _, 0]}),
+    Pid = test_driver:start_link(Name, a),
+    ?wait_for({line, ["start", Pid, Name, DriverPort]}),
+    Port = DriverPort,
+    2 = test_driver:foo(a, sync, 1),
+    ?wait_for({line, [OutputF, Pid, Port, Name, 3]}),
+    2 = test_driver:foo(a, async, 1),
+    ?wait_for({line, ["ready_async", Pid, Port, Name]}),
+    ?expect({line, [OutputF, Pid, Port, Name, 3]}),
+    2 = test_driver:foo(a, control, 1),
+    ?wait_for({line, ["control", Pid, Port, Name, 1, 1]}),
+    2 = test_driver:foo(a, call, 1),
+    ?wait_for({line, ["call", Pid, Port, Name, 1, 3]}),
+    test_driver:stop(a),
+    ?wait_for({line, ["stop", Pid, Name, Port]}),
+    ok = test_driver:unload(Name),
+    ?wait_for({line, ["finish", Name]}),
+    ok = tracerl:stop(DP),
+    ?wait_for(eof),
+    ?expect_not({line, _}).
+
 %%%-------------------------------------------------------------------
 %%% Dyntrace scripts
 %%%-------------------------------------------------------------------
@@ -353,6 +386,48 @@ function_script(Pids) ->
 
 pid_pred(Name, Pids) ->
     {'||', [{'==', Name, Pid} || Pid <- Pids]}.
+
+driver_script(Names) ->
+    [{probe, 'begin',
+      [{printf, "start\n"}]},
+     {probe, "driver-init", name_pred(Names),
+      [{printf, "init %s %d %d %d\n", [name, major, minor, flags]}]},
+     {probe, "driver-start", name_pred(Names),
+      [{printf, "start %s %s %s\n", [pid, name, port]}]},
+     {probe, "driver-stop", name_pred(Names),
+      [{printf, "stop %s %s %s\n", [pid, name, port]}]},
+     {probe, "driver-finish", name_pred(Names),
+      [{printf, "finish %s\n", [name]}]},
+     {probe, "driver-flush", name_pred(Names), %% untested
+      [{printf, "flush %s %s %s\n", [pid, port, name]}]},
+     {probe, "driver-output", name_pred(Names),
+      [{printf, "output %s %s %s %d\n", [pid, port, name, bytes]}]},
+     {probe, "driver-outputv", name_pred(Names),
+      [{printf, "outputv %s %s %s %d\n", [pid, port, name, bytes]}]},
+     {probe, "driver-control", name_pred(Names),
+      [{printf, "control %s %s %s %d %d\n",
+        [pid, port, name, command, bytes]}]},
+     {probe, "driver-call", name_pred(Names),
+      [{printf, "call %s %s %s %d %d\n",
+        [pid, port, name, command, bytes]}]},
+     {probe, "driver-event", name_pred(Names), %% untested
+      [{printf, "event %s %s %s\n", [pid, port, name]}]},
+     {probe, "driver-ready_input", name_pred(Names), %% untested
+      [{printf, "ready_input %s %s %s\n", [pid, port, name]}]},
+     {probe, "driver-ready_output", name_pred(Names), %% untested
+      [{printf, "ready_output %s %s %s\n", [pid, port, name]}]},
+     {probe, "driver-timeout", name_pred(Names), %% untested
+      [{printf, "timeout %s %s %s\n", [pid, port, name]}]},
+     {probe, "driver-ready_async", name_pred(Names),
+      [{printf, "ready_async %s %s %s\n", [pid, port, name]}]},
+     {probe, "driver-process_exit", name_pred(Names), %% untested
+      [{printf, "process_exit %s %s %s\n", [pid, port, name]}]},
+     {probe, "driver-stop_select", name_pred(Names), %% untested
+      [{printf, "stop_select %s\n", [name]}]}
+    ].
+
+name_pred(Names) ->
+    {'||', [{'==', name, Name} || Name <- Names]}.
 
 user_trace_script() ->
     [{probe, 'begin',

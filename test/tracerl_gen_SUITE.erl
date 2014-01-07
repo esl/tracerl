@@ -47,7 +47,7 @@ init_per_testcase(_Case, Config) ->
     Config.
 
 end_per_testcase(_Case, _Config) ->
-    ensure_stop_trace().
+    ok.
 
 %%%-------------------------------------------------------------------
 %%% Test cases

@@ -1,6 +1,8 @@
 ebin
+priv
 rebar
 deps
+c_src/*.o
 test/*.beam
 .eunit
 logs

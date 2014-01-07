@@ -78,6 +78,42 @@ args(Point) when Point == "local-function-entry";
     [{pid, {arg_str, 1}},
      {mfa, {arg_str, 2}},
      {depth, {arg, 3}}];
+args("driver-init") ->
+    [{name, {arg_str, 1}},
+     {major, {arg, 2}},
+     {minor, {arg, 3}},
+     {flags, {arg, 4}}];
+args(Point) when Point == "driver-start";
+                 Point == "driver-stop" ->
+    [{pid, {arg_str, 1}},
+     {name, {arg_str, 2}},
+     {port, {arg_str, 3}}];
+args(Point) when Point == "driver-finish";
+                 Point == "driver-stop_select" ->
+    [{name, {arg_str, 1}}];
+args(Point) when Point == "driver-flush";
+                 Point == "driver-event";
+                 Point == "driver-ready_input";
+                 Point == "driver-ready_output";
+                 Point == "driver-timeout";
+                 Point == "driver-ready_async";
+                 Point == "driver-process_exit" ->
+    [{pid, {arg_str, 1}},
+     {port, {arg_str, 2}},
+     {name, {arg_str, 3}}];
+args(Point) when Point == "driver-output";
+                 Point == "driver-outputv" ->
+    [{pid, {arg_str, 1}},
+     {port, {arg_str, 2}},
+     {name, {arg_str, 3}},
+     {bytes, {arg, 4}}];
+args(Point) when Point == "driver-control";
+                 Point == "driver-call" ->
+    [{pid, {arg_str, 1}},
+     {port, {arg_str, 2}},
+     {name, {arg_str, 3}},
+     {command, {arg, 4}},
+     {bytes, {arg, 5}}];
 args("user_trace-" ++ _) ->
     [{pid, {arg_str, 1}},
      {tag, {arg_str, 2, ""}},

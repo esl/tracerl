@@ -47,12 +47,6 @@ start_term_trace(ScriptSrc, Node) ->
     ct:log(gen_server:call(DP, get_script)),
     DP.
 
-%% ensure_stop_trace() ->
-%%     case whereis(tracerl_process) of
-%%         undefined -> ok;
-%%         DP        -> tracerl:stop(DP)
-%%     end.
-
 collect(Dest, Node, Output) ->
     process_flag(trap_exit, true),
     receive
@@ -164,6 +158,9 @@ test_function() ->
 
 test_function_1(A) ->
     A.
+    %% The line below would make the test case fail!
+    %% Apparently beam would not know which function it returned to.
+    %% receive X -> X after 0 -> {A} end.
 
 test_function_2(A, B) ->
     {A, B}.
