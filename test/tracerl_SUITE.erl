@@ -44,6 +44,7 @@ groups() ->
        message_self_test,
        copy_test,
        function_test,
+       bif_test,
        driver_test,
        driver_outputv_test,
        user_trace_test,
@@ -217,6 +218,21 @@ function_test(_Config) ->
     ?expect({line, ["return", P, Str0, 0]}),
     ?expect({line, ["call", "local", P, Str2, 0]}).
 
+bif_test(_Config) ->
+    {P, Ref} = spawn_monitor(fun() ->
+                                     receive start -> ok end,
+                                     garbage_collect()
+                             end),
+    DP = start_trace(bif_script([P])),
+    ?wait_for({line, ["start"]}),
+    P ! start,
+    receive {'DOWN', Ref, process, _, normal} -> ok end,
+    ok = tracerl_process:stop(DP),
+    ?wait_for(eof),
+    ?expect({line, ["call", P, "erlang:garbage_collect/0"]}),
+    ?expect({line, ["return", P, "erlang:garbage_collect/0"]}),
+    ?expect_not({line, _}).
+
 driver_test(_Config) ->
     driver_test_scenario("test_drv", "output").
 
@@ -382,6 +398,15 @@ function_script(Pids) ->
       [{printf, "call global %s %s %d\n", [pid, mfa, depth]}]},
      {probe, "function-return", pid_pred(pid, Pids),
       [{printf, "return %s %s %d\n", [pid, mfa, depth]}]}
+    ].
+
+bif_script(Pids) ->
+    [{probe, 'begin',
+      [{printf, "start\n"}]},
+     {probe, "bif-entry", pid_pred(pid, Pids),
+      [{printf, "call %s %s\n", [pid, mfa]}]},
+     {probe, "bif-return", pid_pred(pid, Pids),
+      [{printf, "return %s %s\n", [pid, mfa]}]}
     ].
 
 pid_pred(Name, Pids) ->

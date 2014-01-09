@@ -78,6 +78,10 @@ args(Point) when Point == "local-function-entry";
     [{pid, {arg_str, 1}},
      {mfa, {arg_str, 2}},
      {depth, {arg, 3}}];
+args(Point) when Point == "bif-entry";
+                 Point == "bif-return" ->
+    [{pid, {arg_str, 1}},
+     {mfa, {arg_str, 2}}];
 args("driver-init") ->
     [{name, {arg_str, 1}},
      {major, {arg, 2}},
