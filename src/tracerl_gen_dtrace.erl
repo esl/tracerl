@@ -103,5 +103,9 @@ op({arg_str, N}, State) when is_integer(N), N > 0 ->
     {["copyinstr(arg", ?i2l(N-1), ")"], State};
 op({arg, N}, State) when is_integer(N), N > 0 ->
     {["arg", ?i2l(N-1)], State};
+op(timestamp_ns, State) ->
+    {["walltimestamp"], State};
+op(timestamp_us, State) ->
+    {[{op, {'/', timestamp_ns, 1000}}], State};
 op(_, _) ->
     false.

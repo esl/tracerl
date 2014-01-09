@@ -215,5 +215,9 @@ op({arg_str, N}, State) when is_integer(N), N > 0 ->
     {["user_string($arg",?i2l(N),")"], State};
 op({arg, N}, State) when is_integer(N), N > 0 ->
     {["$arg",?i2l(N)], State};
+op(timestamp_ns, State) ->
+    {["gettimeofday_ns()"], State};
+op(timestamp_us, State) ->
+    {["gettimeofday_us()"], State};
 op(_, _) ->
     false.

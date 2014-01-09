@@ -53,14 +53,23 @@ end_per_testcase(_Case, _Config) ->
 %%% Test cases
 %%%-------------------------------------------------------------------
 begin_tick_end_test(_Config) ->
+    {MegaS, S, MicroS} = os:timestamp(),
+    StartTm = ((MegaS * 1000000) + S) * 1000000 + MicroS,
     DP = start_trace(begin_tick_end_script()),
     ?wait_for({line, ["start"]}),
-    ?wait_for({line, ["ticked"]}),
-    ?wait_for({line, ["ticked"]}),
-    ?wait_for({line, ["ticked"]}),
+    ?wait_for({line, ["ticked", Ns1, Ms1]}),
+    ?wait_for({line, ["ticked", Ns2, Ms2]}),
+    ?wait_for({line, ["ticked", Ns3, Ms3]}),
     tracerl_process:stop(DP),
     ?wait_for(eof),
-    ?expect({line, ["finish"]}).
+    ?expect({line, ["finish"]}),
+    verify_us(StartTm, Ns1 div 1000, Ns2 div 1000, Ns3 div 1000),
+    verify_us(StartTm, Ms1, Ms2, Ms3).
+
+verify_us(T0, T1, T2, T3) ->
+    true = T0 < T1,
+    true = 990000 < T2 - T1 andalso T2 - T1 < 1100000,
+    true = 990000 < T3 - T2 andalso T3 - T2 < 1100000.
 
 variable_test(_Config) ->
     Messages = ["aa", "bbbb"],
@@ -273,7 +282,7 @@ begin_tick_end_script() ->
     [{probe, 'begin',
       [{printf, "start\n"}]},
      {probe, {tick, 1},
-      [{printf, "ticked\n"}]},
+      [{printf, "ticked %d %d\n", [timestamp_ns, timestamp_us]}]},
      {probe, 'end',
       [{printf, "finish\n"}]}].
 
